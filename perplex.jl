@@ -32,7 +32,7 @@ simData.Vgs = round.(simData.Vgs, digits = 2);
 
 # ╔═╡ a002f77c-3580-11eb-0ad8-e946d85c84c7
 begin
-	slVds = @bind vds Slider( 0.00 : 0.01 : 1.20
+	slVds = @bind vds Slider( 0.01 : 0.01 : 1.20
 							, default = 0.6, show_value = true );
 	slW = @bind w Slider( 5.0e-7 : 1.0e-7 : 5.0e-6
 						, default = 5.0e-7, show_value = true );
@@ -47,6 +47,75 @@ begin
 	L = $(slL)
 	"""
 end
+
+# ╔═╡ 092d49d4-3584-11eb-226b-bde1f2e49a22
+begin
+	dd = simData[ ( (simData.Vds .== vds)
+			 	 .& (simData.W .== w) )
+				, ["W", "L", "gm", "gds", "id", "vdsat"] ];
+	dd.idw = dd.id ./ dd.W;
+	dd.gmid = dd.gm ./ dd.id;
+	dd.a0 = dd.gm ./ dd.gds;
+end;
+
+# ╔═╡ 42777980-3584-11eb-2f89-91d4fa8683d3
+begin
+	idwgmid = plot();
+	for len in 1.5e-7 : 1.0e-7 : 1.5e-6
+		idwgmid = plot!( dd[dd.L .== len, "gmid"]
+			 	   , dd[dd.L .== len, "idw"]
+			 	   , yscale = :log10
+				   , lab = "L = " *string(len)
+				   , legend = false
+			 	   , yaxis = "id/W", xaxis = "gm/id" );
+	end;
+	idwgmid
+end;
+
+# ╔═╡ fcb28aca-3586-11eb-0c54-bfda0035451d
+begin
+	a0gmid = plot();
+	for len in 1.5e-7 : 1.0e-7 : 1.5e-6
+		a0gmid = plot!( dd[dd.L .== len, "gmid"]
+			 	   , dd[dd.L .== len, "a0"]
+			 	   , yscale = :log10
+				   , lab = "L = " *string(len)
+				   , legend = false
+			 	   , yaxis = "A0", xaxis = "gm/id" );
+	end;
+	a0gmid
+end;
+
+# ╔═╡ 439f0ba4-3587-11eb-3861-bd9ab7650012
+begin
+	idwvdsat = plot();
+	for len in 1.5e-7 : 1.0e-7 : 1.5e-6
+		idwvdsat = plot!( dd[dd.L .== len, "vdsat"]
+			 	   , dd[dd.L .== len, "idw"]
+			 	   , yscale = :log10
+				   , lab = "L = " *string(len)
+				   , legend = false
+			 	   , yaxis = "id/W", xaxis = "vdsat" );
+	end;
+	idwvdsat
+end;
+
+# ╔═╡ 587ae052-3587-11eb-1621-2b51c52e17e8
+begin
+	a0vdsat = plot();
+	for len in 1.5e-7 : 1.0e-7 : 1.5e-6
+		a0vdsat = plot!( dd[dd.L .== len, "gmid"]
+			 	   , dd[dd.L .== len, "a0"]
+			 	   , yscale = :log10
+				   , lab = "L = " *string(len)
+				   , legend = false
+			 	   , yaxis = "A0", xaxis = "gm/id" );
+	end;
+	a0vdsat
+end;
+
+# ╔═╡ 293aad98-3587-11eb-0f56-1d8144ad7e84
+plot(idwgmid, a0gmid, idwvdsat, a0vdsat, layout = (2,2))
 
 # ╔═╡ 0282c34c-3580-11eb-28c5-e5badd2c345f
 df = simData[ ( (simData.Vds .== vds)
@@ -64,8 +133,7 @@ end;
 # ╔═╡ 88f76a24-3580-11eb-297a-2fe3c8a9b083
 plot( df.gmid, df.idw
 	, yscale = :log10
-	, yaxis = "id/W", xaxis = "gm/id"
-	)
+	, yaxis = "id/W", xaxis = "gm/id")
 
 # ╔═╡ Cell order:
 # ╠═9f08514e-357f-11eb-2d48-a5d0177bcc4f
@@ -73,6 +141,12 @@ plot( df.gmid, df.idw
 # ╠═d091d5e2-357f-11eb-385b-252f9ee49070
 # ╠═ed7ac13e-357f-11eb-170b-31a27207af5f
 # ╠═a002f77c-3580-11eb-0ad8-e946d85c84c7
+# ╠═293aad98-3587-11eb-0f56-1d8144ad7e84
+# ╠═092d49d4-3584-11eb-226b-bde1f2e49a22
+# ╠═42777980-3584-11eb-2f89-91d4fa8683d3
+# ╠═fcb28aca-3586-11eb-0c54-bfda0035451d
+# ╠═439f0ba4-3587-11eb-3861-bd9ab7650012
+# ╠═587ae052-3587-11eb-1621-2b51c52e17e8
 # ╠═0282c34c-3580-11eb-28c5-e5badd2c345f
 # ╠═6b97b4f0-3580-11eb-28e5-b356737b0905
 # ╠═88f76a24-3580-11eb-297a-2fe3c8a9b083

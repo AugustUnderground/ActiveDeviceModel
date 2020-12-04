@@ -104,18 +104,18 @@ end;
 begin
 	a0vdsat = plot();
 	for len in 1.5e-7 : 1.0e-7 : 1.5e-6
-		a0vdsat = plot!( dd[dd.L .== len, "gmid"]
+		a0vdsat = plot!( dd[dd.L .== len, "vdsat"]
 			 	   , dd[dd.L .== len, "a0"]
 			 	   , yscale = :log10
 				   , lab = "L = " *string(len)
 				   , legend = false
-			 	   , yaxis = "A0", xaxis = "gm/id" );
+			 	   , yaxis = "A0", xaxis = "vdsat" );
 	end;
 	a0vdsat
 end;
 
 # ╔═╡ 293aad98-3587-11eb-0f56-1d8144ad7e84
-plot(idwgmid, a0gmid, idwvdsat, a0vdsat, layout = (2,2))
+plot(idwgmid, idwvdsat, a0gmid, a0vdsat, layout = (2,2))
 
 # ╔═╡ 0282c34c-3580-11eb-28c5-e5badd2c345f
 df = simData[ ( (simData.Vds .== vds)
@@ -140,8 +140,8 @@ plot( df.gmid, df.idw
 # ╠═bf21b8ec-357f-11eb-023f-6b64f6e0da73
 # ╠═d091d5e2-357f-11eb-385b-252f9ee49070
 # ╠═ed7ac13e-357f-11eb-170b-31a27207af5f
-# ╠═a002f77c-3580-11eb-0ad8-e946d85c84c7
 # ╠═293aad98-3587-11eb-0f56-1d8144ad7e84
+# ╠═a002f77c-3580-11eb-0ad8-e946d85c84c7
 # ╠═092d49d4-3584-11eb-226b-bde1f2e49a22
 # ╠═42777980-3584-11eb-2f89-91d4fa8683d3
 # ╠═fcb28aca-3586-11eb-0c54-bfda0035451d

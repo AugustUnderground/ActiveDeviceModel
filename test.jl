@@ -15,6 +15,12 @@ using CSV
 using JLD2
 using Plots
 
+jldFile = "../data/ptmn45.jld"
+dataFrame = jldopen(jldFile, "r") do file
+    file["database"];
+end;
+
+
 csvFile = "../data/ptmn.csv";
 csvData = CSV.File( csvFile
                   , header=true

@@ -40,7 +40,7 @@ end
 timeStamp = string(Dates.now());
 dataDir = "../data/";
 modelDir = "./model/" * timeStamp * "/";
-deviceName = "ptmn";
+deviceName = "ptmn45";
 mosFile = dataDir * deviceName * ".jld";
 modelFile = modelDir * deviceName * ".bson";
 Base.Filesystem.mkdir(modelDir);
@@ -73,9 +73,8 @@ dataFrame.Vgs = round.(dataFrame.Vgs, digits = 2);
 
 df = shuffleobs(dataFrame);
 
-# Columns of interest split into input and output
+# Use all Parameters for training
 paramsXY = names(dataFrame);
-
 if any(startswith.(paramsXY, "OPP"))
     paramsY = filter((p) -> startswith(p, "OPP"), paramsXY);
     paramsX = filter((p) -> !in(p, paramsY), paramsXY);
@@ -190,7 +189,7 @@ function trainModel()
 end
 
 ### Run Training
-numEpochs = 100;                                     # total number of epochs
+numEpochs = 100;                                    # total number of epochs
 lowestMAE = Inf;                                    # initialize MAE with ∞
 errs = [];                                          # Array of training and validation losses
 

@@ -13,6 +13,7 @@ using JLD2
 using BSON
 using CUDA
 using MLDataUtils
+using Zygote
 using Flux
 using Flux: @epochs
 using Logging
@@ -30,6 +31,7 @@ if usePython
         Conda.add("scikit-learn")
     end
     using ScikitLearn
+    joblib = pyimport("joblib");
 end
 
 ######################
@@ -39,10 +41,12 @@ end
 # File System
 timeStamp = string(Dates.now());
 dataDir = "../data/";
-modelDir = "./model/" * timeStamp * "/";
-deviceName = "ptmn45";
+modelDir = "./model/dev-" * timeStamp * "/";
+deviceName = "ptmn90";
 mosFile = dataDir * deviceName * ".jld";
 modelFile = modelDir * deviceName * ".bson";
+trafoInFile = modelDir * deviceName * ".input";
+trafoOutFile = modelDir * deviceName * ".output";
 Base.Filesystem.mkdir(modelDir);
 
 # Don't allow scalar operations on GPU
@@ -56,8 +60,8 @@ unicodeplots();
 ## Data
 ######################
 
-splitRatio = 0.75;
-batchSize = 7500;
+splitRatio = 0.8;
+batchSize = 2500;
 
 # Handle JLD2 dataframe
 dataFrame = jldopen(mosFile, "r") do file
@@ -75,13 +79,8 @@ df = shuffleobs(dataFrame);
 
 # Use all Parameters for training
 paramsXY = names(dataFrame);
-if any(startswith.(paramsXY, "OPP"))
-    paramsY = filter((p) -> startswith(p, "OPP"), paramsXY);
-    paramsX = filter((p) -> !in(p, paramsY), paramsXY);
-else
-    paramsX = filter((p) -> isuppercase(first(p)), paramsXY);
-    paramsY = filter((p) -> !in(p, paramsX), paramsXY);
-end;
+paramsX = filter((p) -> isuppercase(first(p)), paramsXY);
+paramsY = filter((p) -> !in(p, paramsX), paramsXY);
 
 # Number of In- and Outputs, for respective NN Layers
 numX = length(paramsX);
@@ -100,6 +99,8 @@ if usePython
                                 , random_state = 666 );
     dataX = rawX |> adjoint |> trafoX.fit_transform |> adjoint;
     dataY = rawY |> adjoint |> trafoY.fit_transform |> adjoint;
+    joblib.dump(trafoX, trafoInFile)
+    joblib.dump(trafoY, trafoOutFile)
 else
     trafoX = fit( ZScoreTransform, rawX, dims = 2
                 , center = true, scale = true );
@@ -177,8 +178,6 @@ function trainModel()
            , formatted(meanMAE, :ENG, ndigits = 4) )
     if meanMAE < lowestMAE                          # if model has improved
         bson( modelFile                   
-            , inputTrafo = trafoX
-            , outputTrafo = trafoY
             , model = (φ |> cpu) 
             , weights = θ |> cpu );                 # save the current model (cpu)
         global lowestMAE = meanMAE;                 # update previous lowest MAE
@@ -210,12 +209,13 @@ plot( 1:numEpochs, losses, lab = ["MSE" "MAE"]
 ######################
 
 ## Load specific model ##
-#modelFile = "./model/2020-10-02T08:50:17.907/ptmn.bson";
+modelFile = "./model/dev-2020-12-14T14:11:03.212/ptmn90.bson";
+trafoInFile = "./model/dev-2020-12-14T14:11:03.212/ptmn90.input";
+trafoOutFile = "./model/dev-2020-12-14T14:11:03.212/ptmn90.output";
 model = BSON.load(modelFile);
 φ = model[:model];
-θ = model[:weights]
-trafoX = model[:inputTrafo];
-trafoY = model[:outputTrafo];
+trafoX = joblib.load(trafoInFile);
+trafoY = joblib.load(trafoOutFile);
 ######################
 
 ### φ evaluation function for prediction characteristics
@@ -223,7 +223,7 @@ if usePython
     predict(X) = begin
         rY = ((length(size(X)) < 2) ? [X'] : X') |>
              trafoX.transform |> 
-             adjoint |> gpu |> φ |> cpu |> adjoint |>
+             adjoint |> φ |> adjoint |>
              trafoY.inverse_transform |> 
              adjoint
         return Float64.(rY)
@@ -238,8 +238,8 @@ else
 end;
 
 # Arbitrary Operating Point and sizing
-W = 2e-6;
-L = 1.5e-7;
+W = 1.0e-6;
+L = 3.0e-7;
 vg = 0.6;
 vd = 0.6;
 vgs = 0.0:0.01:1.2;

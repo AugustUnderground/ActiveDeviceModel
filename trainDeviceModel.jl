@@ -209,9 +209,10 @@ plot( 1:numEpochs, losses, lab = ["MSE" "MAE"]
 ######################
 
 ## Load specific model ##
-modelFile = "./model/dev-2020-12-14T14:11:03.212/ptmn90.bson";
-trafoInFile = "./model/dev-2020-12-14T14:11:03.212/ptmn90.input";
-trafoOutFile = "./model/dev-2020-12-14T14:11:03.212/ptmn90.output";
+modelPath = "./model/dev-2020-12-14T17:50:21.395/ptmn90"
+modelFile = modelPath * ".bson";
+trafoInFile = modelPath * ".input";
+trafoOutFile = modelPath * ".output";
 model = BSON.load(modelFile);
 φ = model[:model];
 trafoX = joblib.load(trafoInFile);

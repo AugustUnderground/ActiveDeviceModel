@@ -42,6 +42,9 @@ md"""
 ## gm / id (Data Base)
 """
 
+# ╔═╡ 478b1cde-3e34-11eb-367b-476c0408e6c3
+joblib = pyimport("joblib");
+
 # ╔═╡ d091d5e2-357f-11eb-385b-252f9ee49070
 simData = jldopen("../data/ptmn90.jld") do file
 	file["database"];
@@ -185,23 +188,28 @@ md"""
 
 # ╔═╡ 49e8abac-3e18-11eb-28ca-f9af0718950d
 begin
-	modelFile = "./model/dev-2020-12-14T14:11:03.212/ptmn90.bson";
+	modelPath = "./model/dev-2020-12-14T17:50:21.395/ptmn90";
+	modelFile = modelPath * ".bson";
+	trafoInFile = modelPath * ".input";
+	trafoOutFile = modelPath * ".output";
 	model = BSON.load(modelFile);
 	φ = model[:model];
-	θ = model[:weights];
-	trafoX = model[:inputTrafo];
-	trafoY = model[:outputTrafo];
+	trafoX = joblib.load(trafoInFile);
+	trafoY = joblib.load(trafoOutFile);
 end;
 
 # ╔═╡ 219e21a4-3e1d-11eb-2a02-fd152e843650
 function predict(X)
  	rY = ((length(size(X)) < 2) ? [X'] : X') |>
          trafoX.transform |> 
-         adjoint |> gpu |> φ |> cpu |> adjoint |>
+         adjoint |> φ |> adjoint |>
          trafoY.inverse_transform |> 
          adjoint
   	return Float64.(rY)
 end
+
+# ╔═╡ 910b6bfa-3e36-11eb-34f6-4d9bf3df8188
+
 
 # ╔═╡ f2dc08a6-3a1e-11eb-08b3-81a2ce43c86a
 begin
@@ -231,59 +239,35 @@ begin
 end;
 
 # ╔═╡ 5d9312be-3e1d-11eb-184e-6fc51d067282
-# Arbitrary Operating Point and sizing
-vg = 0.0:0.01:1.2;
+begin
+	vg = 0.0:0.01:1.2;
+	vd = 0.0:0.01:1.2;
+end;
 
-# ╔═╡ c6073d4a-3e1d-11eb-3262-df23bbe50cea
-vd = 0.0:0.01:1.2;
+# ╔═╡ ac7b8cb8-3e35-11eb-2e5b-234637084d4e
+paramsX
 
 # ╔═╡ c60af316-3e1d-11eb-238c-d5ef097d9875
 # Input matrix for φ according to paramsX
-xt = [ collect(vg)'
-     ; repeat([cvds], 121)'
-     ; zeros(1, 121)
-     ; repeat([cw], 121)'
-     ; repeat([cl], 121)' ];
+dp = [ collect(vg)'
+    ; repeat([cvds], 121)'
+    ; zeros(1, 121)
+    ; repeat([cw], 121)'
+    ; repeat([cl], 121)' ]
 
-# ╔═╡ af61e62c-3e24-11eb-38ec-57b4fc56b734
+# ╔═╡ f67a824c-3e35-11eb-0d62-215d8f7aaeca
+opp = predict(dp)
 
-
-# ╔═╡ 8357b576-3e23-11eb-2198-b70b086ce536
-xt |> trafoX.transform
-
-# ╔═╡ c6168438-3e1d-11eb-293e-f7115be86ef0
-# Prediction from φ
-#idtPred  = predict(xt)[first(indexin(["id"], paramsY)),:];
-
-# ╔═╡ c6173aca-3e1d-11eb-38d8-db7ac755d1e5
-# Input matrix for φ according to paramsX
-xo = [ repeat([cvgs], 121)'
-     ; collect(vd)'
-     ; zeros(1, 121)
-     ; repeat([cw], 121)'
-     ; repeat([cl], 121)' ];
-
-# ╔═╡ c62ad834-3e1d-11eb-02ca-537556743757
-# Prediction from φ 
-#idoPred = predict(xo)[first(indexin(["id"], paramsY)),:];
-
-# ╔═╡ c62c56fa-3e1d-11eb-2312-8d30f6aab8c8
-## Plot Results
-
-# Plot Transfer Characterisitc
-#plot( vgs, [ idtTrue idtPred ]
-#    , xaxis=("V_gs", (0.0, 1.2))
-#    , yaxis=("I_d", (0.0, ceil( max(idtTrue...)
-#                              , digits = 4 )))
-#    , label=["tru" "prd"] )
-
-# ╔═╡ c64c98d4-3e1d-11eb-2e66-13d6365eaff7
-# Plot Transfer Characterisitc
-#plot( vds, [ idoTrue idoPred ]
-#    , xaxis=("V_ds", (0.0, 1.2))
-#    , yaxis=("I_d", (0.0, ceil( max(idoTrue...)
-#                              , digits = 4 )))
-#    , label=["tru" "prd"])
+# ╔═╡ b5eaefe0-3e36-11eb-31d4-633a724d1dd9
+begin
+	nn_gm = opp[first(indexin(["gm"], paramsY)), :];
+	nn_id = opp[first(indexin(["id"], paramsY)), :];
+	nn_idwgmid = plot( (nn_gm ./ nn_id)
+			 	   	 , (nn_id ./ cw)
+			 	   	 , yscale = :log10
+				     , legend = false
+			 	   	 , yaxis = "id/W", xaxis = "gm/id" );
+end
 
 # ╔═╡ Cell order:
 # ╠═9f08514e-357f-11eb-2d48-a5d0177bcc4f
@@ -291,6 +275,7 @@ xo = [ repeat([cvgs], 121)'
 # ╠═472a5f78-3a1c-11eb-31da-9fe4b67106e4
 # ╠═bf21b8ec-357f-11eb-023f-6b64f6e0da73
 # ╠═5b9d18dc-3e19-11eb-03e9-9f231903bd84
+# ╠═478b1cde-3e34-11eb-367b-476c0408e6c3
 # ╠═d091d5e2-357f-11eb-385b-252f9ee49070
 # ╠═ed7ac13e-357f-11eb-170b-31a27207af5f
 # ╠═293aad98-3587-11eb-0f56-1d8144ad7e84
@@ -307,15 +292,11 @@ xo = [ repeat([cvgs], 121)'
 # ╠═3cf1f458-3a1c-11eb-2d51-a70a21c10295
 # ╠═49e8abac-3e18-11eb-28ca-f9af0718950d
 # ╠═219e21a4-3e1d-11eb-2a02-fd152e843650
+# ╠═910b6bfa-3e36-11eb-34f6-4d9bf3df8188
 # ╠═f2dc08a6-3a1e-11eb-08b3-81a2ce43c86a
 # ╠═99fb92e4-3e1d-11eb-3120-7b09e7d9a257
 # ╠═5d9312be-3e1d-11eb-184e-6fc51d067282
-# ╠═c6073d4a-3e1d-11eb-3262-df23bbe50cea
+# ╠═ac7b8cb8-3e35-11eb-2e5b-234637084d4e
 # ╠═c60af316-3e1d-11eb-238c-d5ef097d9875
-# ╟─af61e62c-3e24-11eb-38ec-57b4fc56b734
-# ╠═8357b576-3e23-11eb-2198-b70b086ce536
-# ╠═c6168438-3e1d-11eb-293e-f7115be86ef0
-# ╠═c6173aca-3e1d-11eb-38d8-db7ac755d1e5
-# ╠═c62ad834-3e1d-11eb-02ca-537556743757
-# ╠═c62c56fa-3e1d-11eb-2312-8d30f6aab8c8
-# ╠═c64c98d4-3e1d-11eb-2e66-13d6365eaff7
+# ╠═f67a824c-3e35-11eb-0d62-215d8f7aaeca
+# ╠═b5eaefe0-3e36-11eb-31d4-633a724d1dd9

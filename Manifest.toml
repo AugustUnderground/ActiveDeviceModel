@@ -1031,6 +1031,12 @@ git-tree-sha1 = "3242a8f411e19eda9adc49d0b877681975c11375"
 uuid = "bdcacae8-1622-11e9-2a5c-532679323890"
 version = "0.8.26"
 
+[[LossFunctions]]
+deps = ["InteractiveUtils", "LearnBase", "Markdown", "RecipesBase", "SparseArrays", "StatsBase"]
+git-tree-sha1 = "9e7609c29736460e258bacfc5c35c3d31bfa90dd"
+uuid = "30fc2ffe-d236-52d8-8643-a9d8f7c094a7"
+version = "0.6.0"
+
 [[LoweredCodeUtils]]
 deps = ["JuliaInterpreter"]
 git-tree-sha1 = "9af25a91bda16307caff2a50f9c744c432b8bc1b"

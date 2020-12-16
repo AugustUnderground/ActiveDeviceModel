@@ -188,11 +188,11 @@ md"""
 
 # ╔═╡ 49e8abac-3e18-11eb-28ca-f9af0718950d
 begin
-	modelPath = "./model/dev-2020-12-14T17:50:21.395/ptmn90";
+	modelPath = "./model/dev-2020-12-16T14:58:50.001/ptmn90";
 	modelFile = modelPath * ".bson";
 	trafoInFile = modelPath * ".input";
 	trafoOutFile = modelPath * ".output";
-	model = BSON.load(modelFile);
+	model = BSON.load(modelFile);|
 	φ = model[:model];
 	trafoX = joblib.load(trafoInFile);
 	trafoY = joblib.load(trafoOutFile);
@@ -207,9 +207,6 @@ function predict(X)
          adjoint
   	return Float64.(rY)
 end
-
-# ╔═╡ 910b6bfa-3e36-11eb-34f6-4d9bf3df8188
-
 
 # ╔═╡ f2dc08a6-3a1e-11eb-08b3-81a2ce43c86a
 begin
@@ -233,41 +230,51 @@ end
 
 # ╔═╡ 99fb92e4-3e1d-11eb-3120-7b09e7d9a257
 begin
-	paramsXY = names(simData);
-	paramsX = filter((p) -> isuppercase(first(p)), paramsXY);
-	paramsY = filter((p) -> !in(p, paramsX), paramsXY);
+	paramsX = ["W", "L", "Vgs", "Vds", "eVgs", "eVds" ];
+	paramsY = ["id", "gm", "gds", "fug", "vth", "vdsat", "A0", "gmid", "idW"];
 end;
+
+# ╔═╡ a585c49e-3f9f-11eb-1d30-c95c33f96de6
+
 
 # ╔═╡ 5d9312be-3e1d-11eb-184e-6fc51d067282
 begin
-	vg = 0.0:0.01:1.2;
-	vd = 0.0:0.01:1.2;
+	vg = collect(0.0:0.01:1.2)';
+	evgs = vg.^2.0;
+	vd = collect(0.0:0.01:1.2)';
+	evds = vd.^0.5;
+	le = length(vg);
+	vgc = ones(1,le) .* cvgs;
+	evgc = vgc.^2.0;
+	vdc = ones(1,le) .* cvds;
+	evdc = vdc.^0.5;
+	len = ones(1,le) .* cl;
+	wid = ones(1,le) .* cw;
 end;
-
-# ╔═╡ ac7b8cb8-3e35-11eb-2e5b-234637084d4e
-paramsX
 
 # ╔═╡ c60af316-3e1d-11eb-238c-d5ef097d9875
 # Input matrix for φ according to paramsX
-dp = [ collect(vg)'
-    ; repeat([cvds], 121)'
-    ; zeros(1, 121)
-    ; repeat([cw], 121)'
-    ; repeat([cl], 121)' ]
+dp = [ wid ; len ; vg; vdc ; evgs; evdc ]
 
 # ╔═╡ f67a824c-3e35-11eb-0d62-215d8f7aaeca
 opp = predict(dp)
 
 # ╔═╡ b5eaefe0-3e36-11eb-31d4-633a724d1dd9
 begin
-	nn_gm = opp[first(indexin(["gm"], paramsY)), :];
-	nn_id = opp[first(indexin(["id"], paramsY)), :];
-	nn_idwgmid = plot( (nn_gm ./ nn_id)
-			 	   	 , (nn_id ./ cw)
+	td = DataFrame( gmid = opp[first(indexin(["gmid"], paramsY)), :]
+		     	  , idW = opp[first(indexin(["idW"], paramsY)), :] );
+	dt = Matrix(sort(td, "gmid"))'
+	nn_idwgmid = plot( dt[1,:], dt[2,:]
 			 	   	 , yscale = :log10
 				     , legend = false
 			 	   	 , yaxis = "id/W", xaxis = "gm/id" );
 end
+
+# ╔═╡ 4b3cdc6e-3fa6-11eb-2faa-2507a464b541
+x = collect(0.0:0.01:1.2);
+
+# ╔═╡ 5b4552b2-3fa6-11eb-2a84-bfbc019581ad
+plot(x, x.^(1/2))
 
 # ╔═╡ Cell order:
 # ╠═9f08514e-357f-11eb-2d48-a5d0177bcc4f
@@ -292,11 +299,12 @@ end
 # ╠═3cf1f458-3a1c-11eb-2d51-a70a21c10295
 # ╠═49e8abac-3e18-11eb-28ca-f9af0718950d
 # ╠═219e21a4-3e1d-11eb-2a02-fd152e843650
-# ╠═910b6bfa-3e36-11eb-34f6-4d9bf3df8188
+# ╠═b5eaefe0-3e36-11eb-31d4-633a724d1dd9
 # ╠═f2dc08a6-3a1e-11eb-08b3-81a2ce43c86a
 # ╠═99fb92e4-3e1d-11eb-3120-7b09e7d9a257
+# ╠═a585c49e-3f9f-11eb-1d30-c95c33f96de6
 # ╠═5d9312be-3e1d-11eb-184e-6fc51d067282
-# ╠═ac7b8cb8-3e35-11eb-2e5b-234637084d4e
 # ╠═c60af316-3e1d-11eb-238c-d5ef097d9875
 # ╠═f67a824c-3e35-11eb-0d62-215d8f7aaeca
-# ╠═b5eaefe0-3e36-11eb-31d4-633a724d1dd9
+# ╠═4b3cdc6e-3fa6-11eb-2faa-2507a464b541
+# ╠═5b4552b2-3fa6-11eb-2a84-bfbc019581ad

@@ -32,7 +32,7 @@ if usePython
     end
     using ScikitLearn
     joblib = pyimport("joblib");
-end
+end;
 
 ######################
 ## Setup
@@ -53,15 +53,14 @@ Base.Filesystem.mkdir(modelDir);
 CUDA.allowscalar(false);
 
 # Set Plot Backend
-unicodeplots();
-#inspectdr();
+#unicodeplots();
+#gr();
+#plotly();
+inspectdr();
 
 ######################
 ## Data
 ######################
-
-splitRatio = 0.8;
-batchSize = 2500;
 
 # Handle JLD2 dataframe
 dataFrame = jldopen(mosFile, "r") do file
@@ -69,18 +68,28 @@ dataFrame = jldopen(mosFile, "r") do file
 end;
 
 # Processing, Fitlering, Sampling and Shuffling
+#dataFrame.eVgs = exp.(-π ./ dataFrame.Vgs);
+#dataFrame.eVds = -log.(1 ./ dataFrame.Vds);
+
+dataFrame.eVgs = dataFrame.Vgs.^2.0;
+dataFrame.eVds = dataFrame.Vds.^0.5;
 dataFrame.Vgs = round.(dataFrame.Vgs, digits = 2);
+dataFrame.idW = dataFrame.id ./ dataFrame.W;
+dataFrame.gmid = dataFrame.gm ./ dataFrame.id;
+dataFrame.A0 = dataFrame.gm ./ dataFrame.gds;
 
-#sampleIdx = hcat( (0.5 .<= dataFrame.Vds .<= 0.7)
-#                , (dataFrame.Vgs .∈ adjoint(0.0:0.1:1.2)));
-#df = dataFrame[ (|).(sampleIdx...), :];
-
-df = shuffleobs(dataFrame);
+# Get rid of rows iwth NA and/or Inf and shuffle
+mask = (vec ∘ collect)(sum(Matrix(isinf.(dataFrame) .| isnan.(dataFrame)), dims = 2) .== 0);
+df = shuffleobs(dataFrame[mask,:]);
 
 # Use all Parameters for training
-paramsXY = names(dataFrame);
-paramsX = filter((p) -> isuppercase(first(p)), paramsXY);
-paramsY = filter((p) -> !in(p, paramsX), paramsXY);
+#paramsXY = names(dataFrame);
+#paramsX = filter((p) -> isuppercase(first(p)), paramsXY);
+#paramsY = filter((p) -> !in(p, paramsX), paramsXY);
+
+# Use subset of Parameters for Trainign
+paramsX = ["W", "L", "Vgs", "Vds", "eVgs", "eVds" ];
+paramsY = ["id", "gm", "gds", "fug", "vth", "vdsat", "A0", "gmid", "idW"];
 
 # Number of In- and Outputs, for respective NN Layers
 numX = length(paramsX);
@@ -111,10 +120,12 @@ else
 end;
 
 # Split data in training and validation set
+splitRatio = 0.8;
 trainX,validX = splitobs(dataX, splitRatio);
 trainY,validY = splitobs(dataY, splitRatio);
 
 # Create training and validation Batches
+batchSize = 2500;
 trainSet = Flux.Data.DataLoader( (trainX, trainY)
                                , batchsize = batchSize
                                , shuffle = true );
@@ -218,6 +229,7 @@ model = BSON.load(modelFile);
 trafoX = joblib.load(trafoInFile);
 trafoY = joblib.load(trafoOutFile);
 ######################
+φ = φ |> cpu;
 
 ### φ evaluation function for prediction characteristics
 if usePython
@@ -239,12 +251,21 @@ else
 end;
 
 # Arbitrary Operating Point and sizing
+vgs = collect(0.0:0.01:1.2)';
+evgs = vgs.^2.0;
+vds = collect(0.0:0.01:1.2)';
+evds = vds.^0.5;
+len = length(vgs);
 W = 1.0e-6;
+w = ones(1,len) .* W;
 L = 3.0e-7;
+l = ones(1,len) .* L;
 vg = 0.6;
+vgc = ones(1,len) .* vg;
+evgc = vgc.^2.0;
 vd = 0.6;
-vgs = 0.0:0.01:1.2;
-vds = 0.0:0.01:1.2;
+vdc = ones(1,len) .* vd;
+evdc = vdc.^0.5;
 
 ## Transfer Characterisitc
 
@@ -255,13 +276,11 @@ idtTrue = dataFrame[ ( (dataFrame.W .== W)
                    , "id" ];
 
 # Input matrix for φ according to paramsX
-xt = [ collect(vgs)'
-     ; repeat([vd], 121)'
-     ; zeros(1, 121)
-     ; repeat([W], 121)'
-     ; repeat([L], 121)' ];
+# ["W", "L", "Vgs", "Vds", "eVgs", "eVds"]
+xt = [w; l; vgs; vdc; evgs; evdc ];
 
 # Prediction from φ
+# ["id", "gm", "gds", "fug", "vth", "vdsat"]
 idtPred  = predict(xt)[first(indexin(["id"], paramsY)),:];
 
 ## Output Characterisitc
@@ -271,11 +290,7 @@ idoTrue = dataFrame[ ( (dataFrame.W .== W)
                    , "id" ];
 
 # Input matrix for φ according to paramsX
-xo = [ repeat([vg], 121)'
-     ; vds'
-     ; zeros(1, 121)
-     ; repeat([W], 121)'
-     ; repeat([L], 121)' ];
+xo = [w; l; vgc; vds; evgc; evds ];
 
 # Prediction from φ 
 idoPred = predict(xo)[first(indexin(["id"], paramsY)),:];
@@ -283,16 +298,18 @@ idoPred = predict(xo)[first(indexin(["id"], paramsY)),:];
 ## Plot Results
 
 # Plot Transfer Characterisitc
-plot( vgs, [ idtTrue idtPred ]
-    , xaxis=("V_gs", (0.0, 1.2))
-    , yaxis=("I_d", (0.0, ceil( max(idtTrue...)
-                              , digits = 4 )))
-    , label=["tru" "prd"] )
+tPlt = plot( vgs', [idtTrue idtPred]
+           , xaxis=("V_gs", (0.0, 1.2))
+           , yaxis=("I_d", (0.0, ceil( max(idtTrue...)
+                                     , digits = 4 )))
+           , label=["tru" "prd"] );
 
-# Plot Transfer Characterisitc
-plot( vds, [ idoTrue idoPred ]
-    , xaxis=("V_ds", (0.0, 1.2))
-    , yaxis=("I_d", (0.0, ceil( max(idoTrue...)
-                              , digits = 4 )))
-    , label=["tru" "prd"])
+# Plot Output Characterisitc
+oPlt = plot( vds', [idoTrue idoPred]
+           , xaxis=("V_ds", (0.0, 1.2))
+           , yaxis=("I_d", (0.0, ceil( max(idoTrue...)
+                                     , digits = 4 )))
+           , label=["tru" "prd"]);
+
+plot(tPlt, oPlt, layout = (1,2))
  

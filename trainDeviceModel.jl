@@ -68,28 +68,25 @@ dataFrame = jldopen(mosFile, "r") do file
 end;
 
 # Processing, Fitlering, Sampling and Shuffling
-#dataFrame.eVgs = exp.(-π ./ dataFrame.Vgs);
-#dataFrame.eVds = -log.(1 ./ dataFrame.Vds);
-
-dataFrame.eVgs = dataFrame.Vgs.^2.0;
-dataFrame.eVds = dataFrame.Vds.^0.5;
+dataFrame.EVgs = dataFrame.Vgs.^2.0;
+dataFrame.EVds = dataFrame.Vds.^0.5;
 dataFrame.Vgs = round.(dataFrame.Vgs, digits = 2);
 dataFrame.idW = dataFrame.id ./ dataFrame.W;
 dataFrame.gmid = dataFrame.gm ./ dataFrame.id;
-dataFrame.A0 = dataFrame.gm ./ dataFrame.gds;
+dataFrame.a0 = dataFrame.gm ./ dataFrame.gds;
 
 # Get rid of rows iwth NA and/or Inf and shuffle
 mask = (vec ∘ collect)(sum(Matrix(isinf.(dataFrame) .| isnan.(dataFrame)), dims = 2) .== 0);
 df = shuffleobs(dataFrame[mask,:]);
 
 # Use all Parameters for training
-#paramsXY = names(dataFrame);
-#paramsX = filter((p) -> isuppercase(first(p)), paramsXY);
-#paramsY = filter((p) -> !in(p, paramsX), paramsXY);
+paramsXY = names(dataFrame);
+paramsX = filter((p) -> isuppercase(first(p)), paramsXY);
+paramsY = filter((p) -> !in(p, paramsX), paramsXY);
 
 # Use subset of Parameters for Trainign
-paramsX = ["W", "L", "Vgs", "Vds", "eVgs", "eVds" ];
-paramsY = ["id", "gm", "gds", "fug", "vth", "vdsat", "A0", "gmid", "idW"];
+#paramsX = ["W", "L", "Vgs", "Vds", "EVgs", "EVds" ];
+#paramsY = ["id", "gm", "gds", "fug", "vth", "vdsat", "A0", "gmid", "idW"];
 
 # Number of In- and Outputs, for respective NN Layers
 numX = length(paramsX);
@@ -266,6 +263,7 @@ evgc = vgc.^2.0;
 vd = 0.6;
 vdc = ones(1,len) .* vd;
 evdc = vdc.^0.5;
+vbc = zeros(1,len);
 
 ## Transfer Characterisitc
 
@@ -276,8 +274,7 @@ idtTrue = dataFrame[ ( (dataFrame.W .== W)
                    , "id" ];
 
 # Input matrix for φ according to paramsX
-# ["W", "L", "Vgs", "Vds", "eVgs", "eVds"]
-xt = [w; l; vgs; vdc; evgs; evdc ];
+xt = [vgs; vdc; vbc; w; l; evgs; evdc];
 
 # Prediction from φ
 # ["id", "gm", "gds", "fug", "vth", "vdsat"]
@@ -290,7 +287,7 @@ idoTrue = dataFrame[ ( (dataFrame.W .== W)
                    , "id" ];
 
 # Input matrix for φ according to paramsX
-xo = [w; l; vgc; vds; evgc; evds ];
+xo = [vgc; vds; vbc; w; l; evgc; evds];
 
 # Prediction from φ 
 idoPred = predict(xo)[first(indexin(["id"], paramsY)),:];

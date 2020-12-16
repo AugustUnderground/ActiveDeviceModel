@@ -87,7 +87,7 @@ begin
 	for len in 1.5e-7 : 1.0e-7 : 1.5e-6
 		idwgmid = plot!( dd[dd.L .== len, "gmid"]
 			 	   	   , dd[dd.L .== len, "idw"]
-			 	   	   , yscale = :log10
+			 	   	   #, yscale = :log10
 				   	   , lab = "L = " *string(len)
 				       , legend = false
 			 	       , yaxis = "id/W", xaxis = "gm/id" );
@@ -101,7 +101,7 @@ begin
 	for len in 1.5e-7 : 1.0e-7 : 1.5e-6
 		idwvdsat = plot!( dd[dd.L .== len, "vdsat"]
 			 	       	, dd[dd.L .== len, "idw"]
-			 	   		, yscale = :log10
+			 	   		#, yscale = :log10
 				   		, lab = "L = " *string(len)
 				   		, legend = false
 			 	   		, yaxis = "id/W", xaxis = "vdsat" );
@@ -115,7 +115,7 @@ begin
 	for len in 1.5e-7 : 1.0e-7 : 1.5e-6
 		a0gmid = plot!( dd[dd.L .== len, "gmid"]
 			 	   	  , dd[dd.L .== len, "a0"]
-			 	      , yscale = :log10
+			 	      #, yscale = :log10
 				      , lab = "L = " *string(len)
 				      , legend = false
 			 	      , yaxis = "A0", xaxis = "gm/id" );
@@ -129,7 +129,7 @@ begin
 	for len in 1.5e-7 : 1.0e-7 : 1.5e-6
 		a0vdsat = plot!( dd[dd.L .== len, "vdsat"]
 			 	   	   , dd[dd.L .== len, "a0"]
-			 	   	   , yscale = :log10
+			 	   	   #, yscale = :log10
 				   	   , lab = "L = " *string(len)
 				   	   , legend = false
 			 	   	   , yaxis = "A0", xaxis = "vdsat" );
@@ -143,7 +143,7 @@ begin
 	for len in 1.5e-7 : 1.0e-7 : 1.5e-6
 		ftgmid = plot!( dd[dd.L .== len, "gmid"]
 			 	   	  , dd[dd.L .== len, "fug"]
-			 	   	  , yscale = :log10
+			 	   	  #, yscale = :log10
 				   	  , lab = "L = " *string(len)
 				   	  , legend = false
 			 	   	  , yaxis = "fug", xaxis = "gmid" );
@@ -157,7 +157,7 @@ begin
 	for len in 1.5e-7 : 1.0e-7 : 1.5e-6
 		ftvdsat = plot!( dd[dd.L .== len, "vdsat"]
 			 	   	   , dd[dd.L .== len, "fug"]
-			 	   	   , yscale = :log10
+			 	   	   #, yscale = :log10
 				   	   , lab = "L = " *string(len)
 				   	   , legend = false
 			 	   	   , yaxis = "fug", xaxis = "vdsat" );
@@ -188,7 +188,7 @@ md"""
 
 # ╔═╡ 49e8abac-3e18-11eb-28ca-f9af0718950d
 begin
-	modelPath = "./model/dev-2020-12-16T14:58:50.001/ptmn90";
+	modelPath = "./model/dev-2020-12-16T16:14:05.641/ptmn90";
 	modelFile = modelPath * ".bson";
 	trafoInFile = modelPath * ".input";
 	trafoOutFile = modelPath * ".output";
@@ -230,12 +230,14 @@ end
 
 # ╔═╡ 99fb92e4-3e1d-11eb-3120-7b09e7d9a257
 begin
-	paramsX = ["W", "L", "Vgs", "Vds", "eVgs", "eVds" ];
-	paramsY = ["id", "gm", "gds", "fug", "vth", "vdsat", "A0", "gmid", "idW"];
+	#paramsXY = names();
+	#paramsX = filter((p) -> isuppercase(first(p)), paramsXY);
+	#paramsY = filter((p) -> !in(p, paramsX), paramsXY);
+	paramsX = ["Vgs", "Vds", "Vbs", "W", "L", "eVgs", "eVds" ];
+	paramsY = [ "vth", "vdsat", "id", "gm", "gmb","gds", "fug"
+			  , "cgd", "cgb", "cgs", "cds", "csb", "cdb"
+			  , "idW", "gmid", "a0" ];
 end;
-
-# ╔═╡ a585c49e-3f9f-11eb-1d30-c95c33f96de6
-
 
 # ╔═╡ 5d9312be-3e1d-11eb-184e-6fc51d067282
 begin
@@ -250,11 +252,12 @@ begin
 	evdc = vdc.^0.5;
 	len = ones(1,le) .* cl;
 	wid = ones(1,le) .* cw;
+	vbc = zeros(1,le);
 end;
 
 # ╔═╡ c60af316-3e1d-11eb-238c-d5ef097d9875
 # Input matrix for φ according to paramsX
-dp = [ wid ; len ; vg; vdc ; evgs; evdc ]
+dp = [ vg; vdc; vbc; wid; len; evgs; evdc ]
 
 # ╔═╡ f67a824c-3e35-11eb-0d62-215d8f7aaeca
 opp = predict(dp)
@@ -271,10 +274,13 @@ begin
 end
 
 # ╔═╡ 4b3cdc6e-3fa6-11eb-2faa-2507a464b541
-x = collect(0.0:0.01:1.2);
+begin
+	x = collect(0.0:0.01:1.2);
+	y = [ (2 .+ 3 .* x.^3) x.^2];
+end
 
 # ╔═╡ 5b4552b2-3fa6-11eb-2a84-bfbc019581ad
-plot(x, x.^(1/2))
+plot(x, y)
 
 # ╔═╡ Cell order:
 # ╠═9f08514e-357f-11eb-2d48-a5d0177bcc4f
@@ -302,7 +308,6 @@ plot(x, x.^(1/2))
 # ╠═b5eaefe0-3e36-11eb-31d4-633a724d1dd9
 # ╠═f2dc08a6-3a1e-11eb-08b3-81a2ce43c86a
 # ╠═99fb92e4-3e1d-11eb-3120-7b09e7d9a257
-# ╠═a585c49e-3f9f-11eb-1d30-c95c33f96de6
 # ╠═5d9312be-3e1d-11eb-184e-6fc51d067282
 # ╠═c60af316-3e1d-11eb-238c-d5ef097d9875
 # ╠═f67a824c-3e35-11eb-0d62-215d8f7aaeca

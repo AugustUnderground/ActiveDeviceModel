@@ -14,7 +14,7 @@ macro bind(def, element)
 end
 
 # ╔═╡ bf21b8ec-357f-11eb-023f-6b64f6e0da73
-using DataFrames, StatsBase, JLD2, Plots, PlutoUI, DataInterpolations, Flux, Zygote, CUDA, BSON, PyCall, ScikitLearn, NNlib
+using DataFrames, StatsBase, JLD2, Plots, PlutoUI, DataInterpolations, Flux, Zygote, CUDA, BSON, PyCall, ScikitLearn, NNlib, Calculus
 
 # ╔═╡ 5b9d18dc-3e19-11eb-03e9-9f231903bd84
 begin
@@ -41,6 +41,9 @@ end
 md"""
 ## gm / id (Data Base)
 """
+
+# ╔═╡ 99ba2bec-4034-11eb-045f-49b2e8eca1de
+plotly();
 
 # ╔═╡ 478b1cde-3e34-11eb-367b-476c0408e6c3
 joblib = pyimport("joblib");
@@ -87,10 +90,10 @@ begin
 	for len in 1.5e-7 : 1.0e-7 : 1.5e-6
 		idwgmid = plot!( dd[dd.L .== len, "gmid"]
 			 	   	   , dd[dd.L .== len, "idw"]
-			 	   	   #, yscale = :log10
+			 	   	   , yscale = :log10
 				   	   , lab = "L = " *string(len)
 				       , legend = false
-			 	       , yaxis = "id/W", xaxis = "gm/id" );
+			 	       , yaxis = "id/W", title = "gm/id" );
 	end;
 	idwgmid
 end;
@@ -101,10 +104,10 @@ begin
 	for len in 1.5e-7 : 1.0e-7 : 1.5e-6
 		idwvdsat = plot!( dd[dd.L .== len, "vdsat"]
 			 	       	, dd[dd.L .== len, "idw"]
-			 	   		#, yscale = :log10
+			 	   		, yscale = :log10
 				   		, lab = "L = " *string(len)
 				   		, legend = false
-			 	   		, yaxis = "id/W", xaxis = "vdsat" );
+			 	   		, yaxis = "id/W", title = "vdsat" );
 	end;
 	idwvdsat
 end;
@@ -115,10 +118,10 @@ begin
 	for len in 1.5e-7 : 1.0e-7 : 1.5e-6
 		a0gmid = plot!( dd[dd.L .== len, "gmid"]
 			 	   	  , dd[dd.L .== len, "a0"]
-			 	      #, yscale = :log10
+			 	      , yscale = :log10
 				      , lab = "L = " *string(len)
 				      , legend = false
-			 	      , yaxis = "A0", xaxis = "gm/id" );
+			 	      , yaxis = "A0" );
 	end;
 	a0gmid
 end;
@@ -129,10 +132,10 @@ begin
 	for len in 1.5e-7 : 1.0e-7 : 1.5e-6
 		a0vdsat = plot!( dd[dd.L .== len, "vdsat"]
 			 	   	   , dd[dd.L .== len, "a0"]
-			 	   	   #, yscale = :log10
+			 	   	   , yscale = :log10
 				   	   , lab = "L = " *string(len)
 				   	   , legend = false
-			 	   	   , yaxis = "A0", xaxis = "vdsat" );
+			 	   	   , yaxis = "A0" );
 	end;
 	a0vdsat
 end;
@@ -143,10 +146,10 @@ begin
 	for len in 1.5e-7 : 1.0e-7 : 1.5e-6
 		ftgmid = plot!( dd[dd.L .== len, "gmid"]
 			 	   	  , dd[dd.L .== len, "fug"]
-			 	   	  #, yscale = :log10
+			 	   	  , yscale = :log10
 				   	  , lab = "L = " *string(len)
 				   	  , legend = false
-			 	   	  , yaxis = "fug", xaxis = "gmid" );
+			 	   	  , yaxis = "fug" );
 	end;
 	ftgmid
 end;
@@ -157,10 +160,10 @@ begin
 	for len in 1.5e-7 : 1.0e-7 : 1.5e-6
 		ftvdsat = plot!( dd[dd.L .== len, "vdsat"]
 			 	   	   , dd[dd.L .== len, "fug"]
-			 	   	   #, yscale = :log10
+			 	   	   , yscale = :log10
 				   	   , lab = "L = " *string(len)
 				   	   , legend = false
-			 	   	   , yaxis = "fug", xaxis = "vdsat" );
+			 	   	   , yaxis = "fug" );
 	end;
 	ftvdsat
 end;
@@ -180,6 +183,41 @@ begin
 	df.gmid = df.gm ./ df.id;
 	df.a0 = df.gm ./ df.gds;
 end;
+
+# ╔═╡ 799725d6-4034-11eb-2f62-91ef4cc5693c
+md"""
+## Statistics
+"""
+
+# ╔═╡ 8767dc1e-4034-11eb-2c11-91b94e7644b8
+begin
+	lay = @layout [ a b
+				   [c 
+					d 
+					e] 
+				  ]
+	plot( histogram((simData.gm ./ simData.id), title = "gm/id")
+		, histogram((simData.vdsat), title = "vdsat")
+		, histogram((simData.id ./ simData.W), title = "idW")
+		, histogram((simData.fug), title = "fug")
+		, histogram((simData.gm ./ simData.gds), title = "A0") 
+		, layout = lay , legend = false)
+end
+
+# ╔═╡ 115372aa-4038-11eb-2828-6b688d7e0dae
+begin
+	l1 = @layout [ a b
+				   [c 
+					d 
+					e] 
+				  ]
+	plot( histogram(log.(simData.gm ./ simData.id), title = "gm/id")
+		, histogram(log.(simData.vdsat), title = "vdsat")
+		, histogram(log.(simData.id ./ simData.W), title = "idW")
+		, histogram(log.(simData.fug), title = "fug")
+		, histogram(log.(simData.gm ./ simData.gds), title = "A0") 
+		, layout = l1 , legend = false);
+end
 
 # ╔═╡ 3cf1f458-3a1c-11eb-2d51-a70a21c10295
 md"""
@@ -206,7 +244,10 @@ function predict(X)
          trafoY.inverse_transform |> 
          adjoint
   	return Float64.(rY)
-end
+end;
+
+# ╔═╡ b8fd5de8-403a-11eb-0312-6dc9000006ea
+nmos = (vgs, vds, vbs, w, l) -> predict([vgs, vds, vbs, w, l, vgs^2, vds^(1/2)]);
 
 # ╔═╡ f2dc08a6-3a1e-11eb-08b3-81a2ce43c86a
 begin
@@ -255,12 +296,11 @@ begin
 	vbc = zeros(1,le);
 end;
 
-# ╔═╡ c60af316-3e1d-11eb-238c-d5ef097d9875
-# Input matrix for φ according to paramsX
-dp = [ vg; vdc; vbc; wid; len; evgs; evdc ]
-
 # ╔═╡ f67a824c-3e35-11eb-0d62-215d8f7aaeca
-opp = predict(dp)
+begin
+	dp = [ vg; vdc; vbc; wid; len; evgs; evdc ];
+	opp = predict(dp);
+end;
 
 # ╔═╡ b5eaefe0-3e36-11eb-31d4-633a724d1dd9
 begin
@@ -273,20 +313,15 @@ begin
 			 	   	 , yaxis = "id/W", xaxis = "gm/id" );
 end
 
-# ╔═╡ 4b3cdc6e-3fa6-11eb-2faa-2507a464b541
-begin
-	x = collect(0.0:0.01:1.2);
-	y = [ (2 .+ 3 .* x.^3) x.^2];
-end
-
-# ╔═╡ 5b4552b2-3fa6-11eb-2a84-bfbc019581ad
-plot(x, y)
+# ╔═╡ a2d501dc-4040-11eb-083b-6326a6e6734f
+nmos(0.6, 0.6, 0.0, 3e-7, 2.5e-6)
 
 # ╔═╡ Cell order:
 # ╠═9f08514e-357f-11eb-2d48-a5d0177bcc4f
 # ╠═5d549288-3a0c-11eb-0ac3-595f54266cb3
 # ╠═472a5f78-3a1c-11eb-31da-9fe4b67106e4
 # ╠═bf21b8ec-357f-11eb-023f-6b64f6e0da73
+# ╠═99ba2bec-4034-11eb-045f-49b2e8eca1de
 # ╠═5b9d18dc-3e19-11eb-03e9-9f231903bd84
 # ╠═478b1cde-3e34-11eb-367b-476c0408e6c3
 # ╠═d091d5e2-357f-11eb-385b-252f9ee49070
@@ -302,14 +337,16 @@ plot(x, y)
 # ╠═d46c5e3c-360b-11eb-3ab7-9dc5eeb107d6
 # ╠═0282c34c-3580-11eb-28c5-e5badd2c345f
 # ╠═6b97b4f0-3580-11eb-28e5-b356737b0905
+# ╠═799725d6-4034-11eb-2f62-91ef4cc5693c
+# ╠═8767dc1e-4034-11eb-2c11-91b94e7644b8
+# ╠═115372aa-4038-11eb-2828-6b688d7e0dae
 # ╠═3cf1f458-3a1c-11eb-2d51-a70a21c10295
 # ╠═49e8abac-3e18-11eb-28ca-f9af0718950d
 # ╠═219e21a4-3e1d-11eb-2a02-fd152e843650
+# ╠═b8fd5de8-403a-11eb-0312-6dc9000006ea
 # ╠═b5eaefe0-3e36-11eb-31d4-633a724d1dd9
 # ╠═f2dc08a6-3a1e-11eb-08b3-81a2ce43c86a
 # ╠═99fb92e4-3e1d-11eb-3120-7b09e7d9a257
 # ╠═5d9312be-3e1d-11eb-184e-6fc51d067282
-# ╠═c60af316-3e1d-11eb-238c-d5ef097d9875
 # ╠═f67a824c-3e35-11eb-0d62-215d8f7aaeca
-# ╠═4b3cdc6e-3fa6-11eb-2faa-2507a464b541
-# ╠═5b4552b2-3fa6-11eb-2a84-bfbc019581ad
+# ╠═a2d501dc-4040-11eb-083b-6326a6e6734f

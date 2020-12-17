@@ -45,6 +45,7 @@ modelDir = "./model/dev-" * timeStamp * "/";
 deviceName = "ptmn90";
 mosFile = dataDir * deviceName * ".jld";
 modelFile = modelDir * deviceName * ".bson";
+paramFile = modelDir * deviceName * ".param";
 trafoInFile = modelDir * deviceName * ".input";
 trafoOutFile = modelDir * deviceName * ".output";
 Base.Filesystem.mkdir(modelDir);
@@ -83,6 +84,7 @@ df = shuffleobs(dataFrame[mask,:]);
 paramsXY = names(dataFrame);
 paramsX = filter((p) -> isuppercase(first(p)), paramsXY);
 paramsY = filter((p) -> !in(p, paramsX), paramsXY);
+bson(paramFile, paramsX = paramsX, paramsY = paramsY);
 
 # Use subset of Parameters for Trainign
 #paramsX = ["W", "L", "Vgs", "Vds", "EVgs", "EVds" ];
@@ -219,14 +221,19 @@ plot( 1:numEpochs, losses, lab = ["MSE" "MAE"]
 ## Load specific model ##
 modelPath = "./model/dev-2020-12-14T17:50:21.395/ptmn90"
 modelFile = modelPath * ".bson";
+paramFile = modelPath * ".param";
 trafoInFile = modelPath * ".input";
 trafoOutFile = modelPath * ".output";
 model = BSON.load(modelFile);
 φ = model[:model];
+paramsXY = BSON.load(paramFile);
+paramsX = paramsXY[:paramsX];
+paramsY = paramsXY[:paramsY];
 trafoX = joblib.load(trafoInFile);
 trafoY = joblib.load(trafoOutFile);
-######################
+## Use current model ###
 φ = φ |> cpu;
+######################
 
 ### φ evaluation function for prediction characteristics
 if usePython

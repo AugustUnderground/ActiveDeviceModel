@@ -174,7 +174,10 @@ function trainModel()
            , formatted(meanMSE, :ENG, ndigits = 4) 
            , formatted(meanMAE, :ENG, ndigits = 4) )
     if meanMAE < lowestMAE                          # if model has improved
-        bson(modelFile, model = (γ |> cpu));        # save the current model (cpu)
+        bson( modelFile
+            , model = (γ |> cpu)
+            , paramsX = paramsX
+            , paramsY = paramsY );                  # save the current model (cpu)
         global lowestMAE = meanMAE;                 # update previous lowest MAE
         @printf( "\tNew Model Saved with MAE: %s\n" 
                , formatted(meanMAE, :ENG, ndigits = 4) )

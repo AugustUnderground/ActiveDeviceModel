@@ -139,14 +139,8 @@ md"""
 #		  , xaxis = "Vds", yaxis = "Id"
 #		  , title = "Output Characterisitc" )
 #	, layout = (1, 2), legend = false)
-	, heatmap( axisL, axisGMID, A0
-		   	 ; xaxis = "L", yaxis = "gm/id", zaxis = "A0"
-		   	 #, zscale = :log10
-		   	 , title = "Self Gain", c = :greens, legend = nothing )
-	, heatmap( axisL, axisGMID, fug
-		   	 ; xaxis = "L", yaxis = "gm/id", zaxis = "fug"
-		   	 #, zscale = :log10
-		   	 , title = "Unity Gain Frequency", c = :reds, legend = nothing )
+
+
 
 # ╔═╡ 693f007c-4107-11eb-194f-25b6811ceee2
 begin
@@ -217,28 +211,42 @@ end;
 # ╔═╡ 8bbdd950-3fc4-11eb-30d9-9f63ea017860
 surface( axisL, axisGMID, idW
 		   	 ; xaxis = "L", yaxis = "gm/id", zaxis = "id/W"
-		   	 #, zscale = :log10
+		   	 , zscale = :log10
 		     , title = "Current Density", c = :blues, legend = nothing )
 
+# ╔═╡ 25fa951e-4128-11eb-29f4-d5cbb341ba77
+surface( axisL, axisGMID, A0
+	   ; xaxis = "L", yaxis = "gm/id", zaxis = "A0"
+	   , zscale = :log10
+	   , title = "Self Gain", c = :greens, legend = nothing )
+
+# ╔═╡ 06a94ab4-4128-11eb-20e8-859b07bf185a
+surface( axisL, axisGMID, fug
+	   ; xaxis = "L", yaxis = "gm/id", zaxis = "fug"
+	   , zscale = :log10
+	   , title = "Unity Gain Frequency", c = :reds, legend = nothing )
+
 # ╔═╡ Cell order:
-# ╠═3d9fe546-3e12-11eb-3e0d-7f5e9d423e92
+# ╟─3d9fe546-3e12-11eb-3e0d-7f5e9d423e92
 # ╠═647ab7f4-3e12-11eb-29a9-cd98784528f1
 # ╠═39e96b2e-3fc6-11eb-339c-3dbc92012d34
 # ╠═3c9843ae-3fc1-11eb-2da4-6314f7556996
 # ╠═8d5934b6-3fc0-11eb-3770-97600d88d634
-# ╠═80f4d512-3fbe-11eb-1548-01c553692bf4
+# ╟─80f4d512-3fbe-11eb-1548-01c553692bf4
 # ╠═2c96d8d6-3fc0-11eb-1835-450c15fec5ac
 # ╠═84508ff2-3fc2-11eb-2ad7-77c2953a0515
 # ╠═145f05ce-3fc0-11eb-0378-bf8655de1384
 # ╠═f9db2f6c-4115-11eb-1a7c-9bbb7f651ec5
-# ╠═0cbd8a4e-410c-11eb-07ef-1f2cce6153ed
-# ╠═ed52203c-410d-11eb-2f54-e7ee56faa0de
+# ╟─0cbd8a4e-410c-11eb-07ef-1f2cce6153ed
+# ╟─ed52203c-410d-11eb-2f54-e7ee56faa0de
 # ╠═9de1eb8e-4105-11eb-39d3-c7d85be8f5ab
 # ╠═658008b2-4109-11eb-2128-951666af5ceb
-# ╠═bcdbf078-3fc2-11eb-19f9-bbddbdbca559
+# ╟─bcdbf078-3fc2-11eb-19f9-bbddbdbca559
 # ╠═76cd2dfa-4115-11eb-1c8b-095081973632
-# ╠═8bbdd950-3fc4-11eb-30d9-9f63ea017860
-# ╠═693f007c-4107-11eb-194f-25b6811ceee2
+# ╟─8bbdd950-3fc4-11eb-30d9-9f63ea017860
+# ╟─25fa951e-4128-11eb-29f4-d5cbb341ba77
+# ╟─06a94ab4-4128-11eb-20e8-859b07bf185a
+# ╟─693f007c-4107-11eb-194f-25b6811ceee2
 # ╠═de21a462-3fc2-11eb-3121-db02f67519cc
 # ╠═f10ee5e6-3fc2-11eb-2916-3578e545b0bf
 # ╠═66b68336-4105-11eb-37b0-71e1cf288f4e

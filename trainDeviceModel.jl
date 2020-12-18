@@ -53,10 +53,10 @@ Base.Filesystem.mkdir(modelDir);
 CUDA.allowscalar(false);
 
 # Set Plot Backend
-#unicodeplots();
+unicodeplots();
 #gr();
 #plotly();
-inspectdr();
+#inspectdr();
 
 ######################
 ## Data
@@ -253,9 +253,9 @@ end;
 
 # Arbitrary Operating Point and sizing
 vgs = collect(0.0:0.01:1.2)';
-evgs = vgs.^2.0;
+qvgs = vgs.^2.0;
 vds = collect(0.0:0.01:1.2)';
-evds = vds.^0.5;
+qvds = vds.^2.0;
 len = length(vgs);
 W = 1.0e-6;
 w = ones(1,len) .* W;
@@ -263,10 +263,10 @@ L = 3.0e-7;
 l = ones(1,len) .* L;
 vg = 0.6;
 vgc = ones(1,len) .* vg;
-evgc = vgc.^2.0;
+qvgc = vgc.^2.0;
 vd = 0.6;
 vdc = ones(1,len) .* vd;
-evdc = vdc.^0.5;
+qvdc = vdc.^2.0;
 vbc = zeros(1,len);
 
 ## Transfer Characterisitc
@@ -278,7 +278,7 @@ idtTrue = dataFrame[ ( (dataFrame.W .== W)
                    , "id" ];
 
 # Input matrix for φ according to paramsX
-xt = [vgs; vdc; vbc; w; l; evgs; evdc];
+xt = [vgs; vdc; vbc; w; l; qvgs; qvdc; (vgs .* vdc) ];
 
 # Prediction from φ
 # ["id", "gm", "gds", "fug", "vth", "vdsat"]
@@ -291,7 +291,7 @@ idoTrue = dataFrame[ ( (dataFrame.W .== W)
                    , "id" ];
 
 # Input matrix for φ according to paramsX
-xo = [vgc; vds; vbc; w; l; evgc; evds];
+xo = [vgc; vds; vbc; w; l; qvgc; qvds; (vgc .* vds)];
 
 # Prediction from φ 
 idoPred = predict(xo)[first(indexin(["id"], paramsY)),:];

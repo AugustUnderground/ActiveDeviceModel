@@ -253,6 +253,9 @@ end;
 # ╔═╡ b8fd5de8-403a-11eb-0312-6dc9000006ea
 nmos = (vgs, vds, vbs, w, l) -> predict([vgs, vds, vbs, w, l, vgs^2, vds^(1/2)]);
 
+# ╔═╡ f36de5b2-4074-11eb-2086-b987caf75bdd
+#surface(vg',vd',id'; c = :blues)
+
 # ╔═╡ f2dc08a6-3a1e-11eb-08b3-81a2ce43c86a
 begin
 	scVds = @bind cvds Slider( 0.01 : 0.01 : 1.20
@@ -327,9 +330,6 @@ begin
 		id = reshape( predict(sweep)[first(indexin(["id"], paramsY)), :]
 					, (Int(sqrt(slen)), Int(sqrt(slen))));
 end;
-
-# ╔═╡ f36de5b2-4074-11eb-2086-b987caf75bdd
-surface(vg',vd',id'; c = :blues)
 
 # ╔═╡ Cell order:
 # ╠═9f08514e-357f-11eb-2d48-a5d0177bcc4f

@@ -69,9 +69,9 @@ end;
 
 # Processing, Fitlering, Sampling and Shuffling
 dataFrame.QVgs = dataFrame.Vgs.^2.0;
-dataFrame.QVds = dataFrame.Vds.^2.0;
+#dataFrame.QVds = dataFrame.Vds.^2.0;
 #dataFrame.RVgs = dataFrame.Vgs.^0.5;
-#dataFrame.RVds = dataFrame.Vds.^0.5;
+dataFrame.RVds = dataFrame.Vds.^0.5;
 dataFrame.Vdgs = dataFrame.Vds .* dataFrame.Vgs;
 dataFrame.Vgs = round.(dataFrame.Vgs, digits = 2);
 

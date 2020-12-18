@@ -14,7 +14,7 @@ macro bind(def, element)
 end
 
 # ╔═╡ bf21b8ec-357f-11eb-023f-6b64f6e0da73
-using DataFrames, StatsBase, JLD2, Plots, PlutoUI, DataInterpolations, Flux, Zygote, CUDA, BSON, PyCall, ScikitLearn, NNlib, Calculus
+using DataFrames, StatsBase, JLD2, Plots, PlutoUI, DataInterpolations, Flux, Zygote, CUDA, BSON, PyCall, ScikitLearn, NNlib, FiniteDifferences, Optim
 
 # ╔═╡ 5b9d18dc-3e19-11eb-03e9-9f231903bd84
 begin
@@ -234,6 +234,10 @@ begin
 	φ = model[:model];
 	trafoX = joblib.load(trafoInFile);
 	trafoY = joblib.load(trafoOutFile);
+	paramsX = ["Vgs", "Vds", "Vbs", "W", "L", "eVgs", "eVds" ];
+	paramsY = [ "vth", "vdsat", "id", "gm", "gmb","gds", "fug"
+			  , "cgd", "cgb", "cgs", "cds", "csb", "cdb"
+			  , "idW", "gmid", "a0" ];
 end;
 
 # ╔═╡ 219e21a4-3e1d-11eb-2a02-fd152e843650
@@ -257,28 +261,15 @@ begin
 							, default = 0.6, show_value = true );
 	scW = @bind cw Slider( 7.5e-7 : 1.0e-7 : 5.0e-6
 						, default = 5.0e-7, show_value = true );
-	scL = @bind cl Slider( 1.5e-7 : 1.0e-7 : 1.5e-6
-						, default = 1.5e-7, show_value = true );
+	scL = @bind cl Slider( 3e-7 : 1.0e-7 : 1.5e-6
+						, default = 3e-7, show_value = true );
 	
 	md"""
-	vds = $(scVds)
+	`Vds` = $(scVds) `Vgs` = $(scVgs)
 	
-	W = $(scW)
-	
-	L = $(scL)
+	`W` = $(scW) `L` = $(scL)
 	"""
 end
-
-# ╔═╡ 99fb92e4-3e1d-11eb-3120-7b09e7d9a257
-begin
-	#paramsXY = names();
-	#paramsX = filter((p) -> isuppercase(first(p)), paramsXY);
-	#paramsY = filter((p) -> !in(p, paramsX), paramsXY);
-	paramsX = ["Vgs", "Vds", "Vbs", "W", "L", "eVgs", "eVds" ];
-	paramsY = [ "vth", "vdsat", "id", "gm", "gmb","gds", "fug"
-			  , "cgd", "cgb", "cgs", "cds", "csb", "cdb"
-			  , "idW", "gmid", "a0" ];
-end;
 
 # ╔═╡ 5d9312be-3e1d-11eb-184e-6fc51d067282
 begin
@@ -311,10 +302,34 @@ begin
 			 	   	 , yscale = :log10
 				     , legend = false
 			 	   	 , yaxis = "id/W", xaxis = "gm/id" );
+	nn_idwgmid = plot!( dt[1,:]
+					   , (reverse ∘ sort)(dd[dd.L .== cl, "idw"])
+			 	   	   , yscale = :log10
+				   	   , lab = "L = " *string(len)
+				       , legend = false
+			 	       , yaxis = "id/W", title = "gm/id" );
 end
 
-# ╔═╡ a2d501dc-4040-11eb-083b-6326a6e6734f
-nmos(0.6, 0.6, 0.0, 3e-7, 2.5e-6)
+# ╔═╡ 5a73a78a-406c-11eb-32e5-356b9cf0bf24
+begin
+	#pv = [ vg; vd; vbc; wid; len; evgs; evdc ];
+	opv = reshape( Iterators.product(vg', vd') |> collect
+		   		 , ((length(vg) * length(vd)), 1));
+	vgd = hcat([ [o...] for o in opv ]...);
+	slen = size(vgd)[2]
+	sweep = [ vgd[2,:]'
+			; vgd[1,:]'
+			; zeros(1, slen)
+			; ones(1, slen) .* cw 
+			; ones(1, slen) .* cl
+			; vgd[2,:]'.^(2.0)
+			; vgd[1,:]'.^(0.5) ];
+		id = reshape( predict(sweep)[first(indexin(["id"], paramsY)), :]
+					, (Int(sqrt(slen)), Int(sqrt(slen))));
+end;
+
+# ╔═╡ f36de5b2-4074-11eb-2086-b987caf75bdd
+surface(vg',vd',id'; c = :blues)
 
 # ╔═╡ Cell order:
 # ╠═9f08514e-357f-11eb-2d48-a5d0177bcc4f
@@ -344,9 +359,9 @@ nmos(0.6, 0.6, 0.0, 3e-7, 2.5e-6)
 # ╠═49e8abac-3e18-11eb-28ca-f9af0718950d
 # ╠═219e21a4-3e1d-11eb-2a02-fd152e843650
 # ╠═b8fd5de8-403a-11eb-0312-6dc9000006ea
+# ╠═f36de5b2-4074-11eb-2086-b987caf75bdd
 # ╠═b5eaefe0-3e36-11eb-31d4-633a724d1dd9
 # ╠═f2dc08a6-3a1e-11eb-08b3-81a2ce43c86a
-# ╠═99fb92e4-3e1d-11eb-3120-7b09e7d9a257
 # ╠═5d9312be-3e1d-11eb-184e-6fc51d067282
 # ╠═f67a824c-3e35-11eb-0d62-215d8f7aaeca
-# ╠═a2d501dc-4040-11eb-083b-6326a6e6734f
+# ╠═5a73a78a-406c-11eb-32e5-356b9cf0bf24

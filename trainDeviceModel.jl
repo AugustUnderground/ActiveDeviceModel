@@ -45,7 +45,6 @@ modelDir = "./model/dev-" * timeStamp * "/";
 deviceName = "ptmn90";
 mosFile = dataDir * deviceName * ".jld";
 modelFile = modelDir * deviceName * ".bson";
-paramFile = modelDir * deviceName * ".param";
 trafoInFile = modelDir * deviceName * ".input";
 trafoOutFile = modelDir * deviceName * ".output";
 Base.Filesystem.mkdir(modelDir);
@@ -69,12 +68,12 @@ dataFrame = jldopen(mosFile, "r") do file
 end;
 
 # Processing, Fitlering, Sampling and Shuffling
-dataFrame.EVgs = dataFrame.Vgs.^2.0;
-dataFrame.EVds = dataFrame.Vds.^0.5;
+dataFrame.QVgs = dataFrame.Vgs.^2.0;
+dataFrame.QVds = dataFrame.Vds.^2.0;
+#dataFrame.RVgs = dataFrame.Vgs.^0.5;
+#dataFrame.RVds = dataFrame.Vds.^0.5;
+dataFrame.Vdgs = dataFrame.Vds .* dataFrame.Vgs;
 dataFrame.Vgs = round.(dataFrame.Vgs, digits = 2);
-dataFrame.idW = dataFrame.id ./ dataFrame.W;
-dataFrame.gmid = dataFrame.gm ./ dataFrame.id;
-dataFrame.a0 = dataFrame.gm ./ dataFrame.gds;
 
 # Get rid of rows iwth NA and/or Inf and shuffle
 mask = (vec ∘ collect)(sum(Matrix(isinf.(dataFrame) .| isnan.(dataFrame)), dims = 2) .== 0);
@@ -84,7 +83,6 @@ df = shuffleobs(dataFrame[mask,:]);
 paramsXY = names(dataFrame);
 paramsX = filter((p) -> isuppercase(first(p)), paramsXY);
 paramsY = filter((p) -> !in(p, paramsX), paramsXY);
-bson(paramFile, paramsX = paramsX, paramsY = paramsY);
 
 # Use subset of Parameters for Trainign
 #paramsX = ["W", "L", "Vgs", "Vds", "EVgs", "EVds" ];
@@ -189,7 +187,8 @@ function trainModel()
     if meanMAE < lowestMAE                          # if model has improved
         bson( modelFile                   
             , model = (φ |> cpu) 
-            , weights = θ |> cpu );                 # save the current model (cpu)
+            , paramsX = paramsX
+            , paramsY = paramsY );                  # save the current model (cpu)
         global lowestMAE = meanMAE;                 # update previous lowest MAE
         @printf( "\tNew Model Saved with MAE: %s\n" 
                , formatted(meanMAE, :ENG, ndigits = 4) )
@@ -221,14 +220,12 @@ plot( 1:numEpochs, losses, lab = ["MSE" "MAE"]
 ## Load specific model ##
 modelPath = "./model/dev-2020-12-14T17:50:21.395/ptmn90"
 modelFile = modelPath * ".bson";
-paramFile = modelPath * ".param";
 trafoInFile = modelPath * ".input";
 trafoOutFile = modelPath * ".output";
 model = BSON.load(modelFile);
 φ = model[:model];
-paramsXY = BSON.load(paramFile);
-paramsX = paramsXY[:paramsX];
-paramsY = paramsXY[:paramsY];
+paramsX = model[:paramsX];
+paramsY = model[:paramsY];
 trafoX = joblib.load(trafoInFile);
 trafoY = joblib.load(trafoOutFile);
 ## Use current model ###

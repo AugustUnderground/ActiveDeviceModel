@@ -14,7 +14,7 @@ macro bind(def, element)
 end
 
 # ╔═╡ 647ab7f4-3e12-11eb-29a9-cd98784528f1
-using Flux, Lazy, Printf, Plots, StatsBase, PyCall, BSON, Zygote, CUDA, mna, PlutoUI, DataFrames
+using Flux, Lazy, Printf, Plots, StatsBase, PyCall, BSON, Zygote, CUDA, mna, PlutoUI, Optim, LinearAlgebra, Calculus
 
 # ╔═╡ 3c9843ae-3fc1-11eb-2da4-6314f7556996
 begin
@@ -37,45 +37,45 @@ plotly();
 joblib = pyimport("joblib");
 
 # ╔═╡ 80f4d512-3fbe-11eb-1548-01c553692bf4
-begin
-	struct MOSFET
-		type
-		model
-		paramsX
-		paramsY
-		trafoX
-		trafoY
-	end
+md"""
+### Primitive Devices
 		
-		md"""
-		### Primitive Devices
-		
-		A _MOSFET_ is defined as a `struct` with access to the NN Model and data Transformations.
-		"""
+A _MOSFET_ is defined as a `struct` with access to the NN Model and data Transformations.
+"""
+
+# ╔═╡ 9635c21a-4135-11eb-2b1d-65e5ce383bce
+struct MOSFET
+	type
+	model
+	paramsX
+	paramsY
+	trafoX
+	trafoY
 end
 
 # ╔═╡ 2c96d8d6-3fc0-11eb-1835-450c15fec5ac
-modelPath = "./model/dev-2020-12-16T16:14:05.641/ptmn90";
+devicePath = "./model/dev-2020-12-18T13:26:12.707/ptmn90";
 
 # ╔═╡ 84508ff2-3fc2-11eb-2ad7-77c2953a0515
-function predict(mosfet, X)
+function predict(μ, X)
 	rY = ((length(size(X)) < 2) ? [X'] : X') |>
-    	 mosfet.trafoX.transform |> 
-         adjoint |> mosfet.model |> adjoint |>
-         mosfet.trafoY.inverse_transform |> 
+    	 μ.trafoX.transform |> 
+         adjoint |> μ.model |> adjoint |>
+         μ.trafoY.inverse_transform |> 
          adjoint
 	return Float64.(rY)
 end;
 
-# ╔═╡ 145f05ce-3fc0-11eb-0378-bf8655de1384
-nmos = MOSFET( "n"
-			 , BSON.load(modelPath * ".bson")[:model]
-			 , ["Vgs", "Vds", "Vbs", "W", "L", "eVgs", "eVds" ]
-			 , [ "vth", "vdsat", "id", "gm", "gmb","gds", "fug"
-			   , "cgd", "cgb", "cgs", "cds", "csb", "cdb"
-			   , "idW", "gmid", "a0" ]
-			 , joblib.load(modelPath * ".input")
-			 , joblib.load(modelPath * ".output") );
+# ╔═╡ 0669423a-4136-11eb-35dd-d9e990ecb321
+begin
+	model = BSON.load(devicePath * ".bson");
+	nmos = MOSFET( "n"
+				 , model[:model]
+				 , model[:paramsX]
+				 , model[:paramsY]
+				 , joblib.load(devicePath * ".input")
+				 , joblib.load(devicePath * ".output") );
+end;
 
 # ╔═╡ f9db2f6c-4115-11eb-1a7c-9bbb7f651ec5
 opp = (mos, prd, param) -> prd[first(indexin([param], mos.paramsY)), :];
@@ -119,9 +119,10 @@ Some **ranges** and **constants** for plotting:
 # ╔═╡ 9de1eb8e-4105-11eb-39d3-c7d85be8f5ab
 begin
 	rangeVgs = range(Vgsmin, stop = Vgsmax, length = sweepLen);
-	rangeEVgs = rangeVgs.^2.0;
+	rangeQVgs = rangeVgs.^2.0;
 	rangeVds = range(Vdsmin, stop = Vdsmax, length = sweepLen);
-	rangeEVds = rangeVds.^0.5;
+	rangeQVds = rangeVds.^2.0;
+	rangeVdgs = rangeVds .* rangeVgs;
 	rangeW = range(Wmin, step = 0.5e-7, length = sweepLen);
 	rangeL = range(Lmin, stop = Lmax, length = sweepLen);
 end;
@@ -140,7 +141,54 @@ md"""
 #		  , title = "Output Characterisitc" )
 #	, layout = (1, 2), legend = false)
 
+# ╔═╡ 6301e07c-4138-11eb-1606-2d9b676f2bdd
+md"""
+### Testing the Design Model
 
+Defined by two functions:
+
+$$f_{\gamma} ( \frac{g_{\text{m}}}{i_{\text{d}}} , V_{\text{ds}}, L ) \mapsto
+[ A_{0}, f_{\text{ug}}, \frac{i_{\text{d}}}{W}, V_{\text{gs}} ]$$ 
+
+$$f_{\nu} ( v_{\text{dsat}} , V_{\text{ds}}, L ) \mapsto
+[ A_{0}, f_{\text{ug}}, \frac{i_{\text{d}}}{W}, V_{\text{gs}} ]$$ 
+"""
+
+# ╔═╡ 4aff32a0-4149-11eb-2efd-a34ab9714a4e
+struct DesignFunction
+	model
+	paramsX
+	paramsY
+	trafoX
+	trafoY
+end;
+
+# ╔═╡ f5df8218-413b-11eb-385d-6dfd7ca750f8
+begin
+	gmidPath = "./model/des-2020-12-18T13:42:19.252/ptmn90";
+	gmidFile = BSON.load(gmidPath * ".bson");
+	γ = DesignFunction( gmidFile[:model]
+	                  , ["L", "gmid", "Vds", "QVds"]
+	                  , [ "A0", "A0Log", "fug", "fugLog"
+                        , "idW", "idWLog", "Vgs", "QVgs" ]
+	                  , joblib.load(gmidPath * ".input")
+                      , joblib.load(gmidPath * ".output") );
+	
+	vdsatPath = "./model/des-2020-12-18T13:48:31.766/ptmn90";
+	vdsatFile = BSON.load(vdsatPath * ".bson");
+	ν = DesignFunction( vdsatFile[:model]
+	                  , ["L", "vdsat", "Vds", "QVds"]
+	                  , [ "A0", "A0Log", "fug", "fugLog"
+                        , "idW", "idWLog", "Vgs", "QVgs" ]
+	                  , joblib.load(vdsatPath * ".input")
+                      , joblib.load(vdsatPath * ".output") );
+end;
+
+# ╔═╡ d54b9bee-413f-11eb-3ea1-bff788c78330
+begin
+	fᵧ = (gmid, vds, l) -> predict(γ, [l; gmid; vds; (vds.^2)])[[1,3,5,7],:];
+	fᵥ = (vdsat, vds, l) -> predict(ν, [l; vdsat; vds; (vds.^2)])[[1,3,5,7],:];
+end;
 
 # ╔═╡ 693f007c-4107-11eb-194f-25b6811ceee2
 begin
@@ -161,70 +209,58 @@ begin
 	constW = ones(1,sweepLen) .* W;
 	constL = ones(1,sweepLen) .* L;
 	constVgs = ones(1,sweepLen) .* Vgs;
-	constEVgs = constVgs.^2.0;
+	constQVgs = constVgs.^2.0;
 	constVds = ones(1,sweepLen) .* Vds;
-	constEVds = constVds.^0.5;
+	constQVds = constVds.^2.0;
+	constVdgs = constVds .* constVgs;
 	constVbs = zeros(1,sweepLen);
 end;
 
 # ╔═╡ de21a462-3fc2-11eb-3121-db02f67519cc
 begin
-	Xₜ = [rangeVgs'; constVds; constVbs; constW; constL; rangeEVgs'; constEVds];
+	Xₜ = [ rangeVgs'
+		 ; constVds
+		 ; constVbs
+		 ; constW
+		 ; constL
+		 ; rangeQVgs'
+		 ; constQVds
+		 ; constVds .* rangeVgs' ];
 	pₜ = predict(nmos, Xₜ);
 	idₜ = pₜ[first(indexin(["id"], nmos.paramsY)), :];
 end;
 
 # ╔═╡ f10ee5e6-3fc2-11eb-2916-3578e545b0bf
 begin
-	Xₒ = [constVgs; rangeVds'; constVbs; constW; constL; constEVgs; rangeEVds'];
+	Xₒ = [ constVgs
+		 ; rangeVds'
+		 ; constVbs
+		 ; constW
+		 ; constL
+		 ; constQVgs
+		 ; rangeQVds'
+		 ; rangeVds' .* constVgs ];
 	pₒ = predict(nmos, Xₒ);
-	idₒ = pₜ[first(indexin(["id"], nmos.paramsY)), :];
+	idₒ = pₒ[first(indexin(["id"], nmos.paramsY)), :];
 end;
 
-# ╔═╡ 66b68336-4105-11eb-37b0-71e1cf288f4e
+# ╔═╡ 412d1876-4146-11eb-1dcc-31217a410d35
 begin
-	rangeVL = reshape( Iterators.product(rangeVgs', rangeL') |> collect
-		   		 	 , (sweepLen^2), 1);
-	VL = hcat([ [o...] for o in rangeVL ]...);
-	sweep = [ VL[1,:]'
-			; ones(1, (sweepLen^2)) .* Vds 
-			; zeros(1, (sweepLen^2))
-			; ones(1, (sweepLen^2)) .* W
-			; VL[2,:]' ; VL[1,:]' .^2.0
-			; ones(1, (sweepLen^2)) .* (Vds^0.5) ];
-	op = predict(nmos,sweep);
-	opDF = DataFrame( L = VL[2,:] 
-					, gmid = opp(nmos, op, "gmid")
-					, vdsat = opp(nmos, op, "vdsat")
-					, idW = opp(nmos, op, "idW")
-					, fug = opp(nmos, op, "fug")
-					, A0 = opp(nmos, op, "a0") );
-	df = sort(opDF, ["L", "gmid"]);
-	axisL = unique(df.L);
-	axisGMID = df[ df.L .== first(axisL)
-				 , "gmid" ];
-	idW = reshape(df.idW, (length(axisL), length(axisGMID)));
-	fug = reshape(df.fug, (length(axisL), length(axisGMID)));
-	A0 = reshape(df.A0, (length(axisL), length(axisGMID)));
+	gmid = collect(1:0.1:25)';
+	vds = ones(1,length(gmid)) .* Vds;
+	l = ones(1,length(gmid)) .* L;
+	idW = (gmid,vds,l) -> fᵧ(gmid, vds, l)[3,:];
 end;
 
-# ╔═╡ 8bbdd950-3fc4-11eb-30d9-9f63ea017860
-surface( axisL, axisGMID, idW
-		   	 ; xaxis = "L", yaxis = "gm/id", zaxis = "id/W"
-		   	 , zscale = :log10
-		     , title = "Current Density", c = :blues, legend = nothing )
+# ╔═╡ d84ad25a-414f-11eb-2d7d-eb31e96d3af4
+plot( gmid', idW(gmid, ones(1,length(gmid)) .* Vds, ones(1, length(gmid)) .* L)
+	; xaxis = "gm/id", yaxis = "id/W", yscale = :log10, legend = nothing)
 
-# ╔═╡ 25fa951e-4128-11eb-29f4-d5cbb341ba77
-surface( axisL, axisGMID, A0
-	   ; xaxis = "L", yaxis = "gm/id", zaxis = "A0"
-	   , zscale = :log10
-	   , title = "Self Gain", c = :greens, legend = nothing )
-
-# ╔═╡ 06a94ab4-4128-11eb-20e8-859b07bf185a
-surface( axisL, axisGMID, fug
-	   ; xaxis = "L", yaxis = "gm/id", zaxis = "fug"
-	   , zscale = :log10
-	   , title = "Unity Gain Frequency", c = :reds, legend = nothing )
+# ╔═╡ c850e59c-4154-11eb-1931-cb3c7e18356d
+begin
+	∂idW = (l) -> idW(10,0.6,l);
+	∂idw_∂L = derivative(∂idW, 3e-7)
+end
 
 # ╔═╡ Cell order:
 # ╟─3d9fe546-3e12-11eb-3e0d-7f5e9d423e92
@@ -233,9 +269,10 @@ surface( axisL, axisGMID, fug
 # ╠═3c9843ae-3fc1-11eb-2da4-6314f7556996
 # ╠═8d5934b6-3fc0-11eb-3770-97600d88d634
 # ╟─80f4d512-3fbe-11eb-1548-01c553692bf4
+# ╠═9635c21a-4135-11eb-2b1d-65e5ce383bce
 # ╠═2c96d8d6-3fc0-11eb-1835-450c15fec5ac
 # ╠═84508ff2-3fc2-11eb-2ad7-77c2953a0515
-# ╠═145f05ce-3fc0-11eb-0378-bf8655de1384
+# ╠═0669423a-4136-11eb-35dd-d9e990ecb321
 # ╠═f9db2f6c-4115-11eb-1a7c-9bbb7f651ec5
 # ╟─0cbd8a4e-410c-11eb-07ef-1f2cce6153ed
 # ╟─ed52203c-410d-11eb-2f54-e7ee56faa0de
@@ -243,10 +280,13 @@ surface( axisL, axisGMID, fug
 # ╠═658008b2-4109-11eb-2128-951666af5ceb
 # ╟─bcdbf078-3fc2-11eb-19f9-bbddbdbca559
 # ╠═76cd2dfa-4115-11eb-1c8b-095081973632
-# ╟─8bbdd950-3fc4-11eb-30d9-9f63ea017860
-# ╟─25fa951e-4128-11eb-29f4-d5cbb341ba77
-# ╟─06a94ab4-4128-11eb-20e8-859b07bf185a
-# ╟─693f007c-4107-11eb-194f-25b6811ceee2
 # ╠═de21a462-3fc2-11eb-3121-db02f67519cc
 # ╠═f10ee5e6-3fc2-11eb-2916-3578e545b0bf
-# ╠═66b68336-4105-11eb-37b0-71e1cf288f4e
+# ╟─6301e07c-4138-11eb-1606-2d9b676f2bdd
+# ╠═4aff32a0-4149-11eb-2efd-a34ab9714a4e
+# ╠═f5df8218-413b-11eb-385d-6dfd7ca750f8
+# ╠═d54b9bee-413f-11eb-3ea1-bff788c78330
+# ╠═d84ad25a-414f-11eb-2d7d-eb31e96d3af4
+# ╟─693f007c-4107-11eb-194f-25b6811ceee2
+# ╠═412d1876-4146-11eb-1dcc-31217a410d35
+# ╠═c850e59c-4154-11eb-1931-cb3c7e18356d

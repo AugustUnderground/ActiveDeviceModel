@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.12.17
+# v0.12.18
 
 using Markdown
 using InteractiveUtils
@@ -224,20 +224,18 @@ md"""
 ## gm / id (Neural Network)
 """
 
-# ╔═╡ 49e8abac-3e18-11eb-28ca-f9af0718950d
-begin
-	modelPath = "./model/dev-2020-12-16T16:14:05.641/ptmn90";
+# ╔═╡ 48a26e26-4e72-11eb-222d-090029af4981
+begin	
+	modelPath = "./model/dev-2021-01-04T10:33:31.124/ptmn90";
 	modelFile = modelPath * ".bson";
 	trafoInFile = modelPath * ".input";
 	trafoOutFile = modelPath * ".output";
-	model = BSON.load(modelFile);|
+	model = BSON.load(modelFile);
 	φ = model[:model];
 	trafoX = joblib.load(trafoInFile);
 	trafoY = joblib.load(trafoOutFile);
-	paramsX = ["Vgs", "Vds", "Vbs", "W", "L", "eVgs", "eVds" ];
-	paramsY = [ "vth", "vdsat", "id", "gm", "gmb","gds", "fug"
-			  , "cgd", "cgb", "cgs", "cds", "csb", "cdb"
-			  , "idW", "gmid", "a0" ];
+	paramsX = model[:paramsX];
+	paramsY = model[:paramsY];
 end;
 
 # ╔═╡ 219e21a4-3e1d-11eb-2a02-fd152e843650
@@ -251,10 +249,7 @@ function predict(X)
 end;
 
 # ╔═╡ b8fd5de8-403a-11eb-0312-6dc9000006ea
-nmos = (vgs, vds, vbs, w, l) -> predict([vgs, vds, vbs, w, l, vgs^2, vds^(1/2)]);
-
-# ╔═╡ f36de5b2-4074-11eb-2086-b987caf75bdd
-#surface(vg',vd',id'; c = :blues)
+nmos = (vgs, vds, vbs, w, l) -> predict([vgs, vds, vbs, w, l, vgs^2, exp(vds)]);
 
 # ╔═╡ f2dc08a6-3a1e-11eb-08b3-81a2ce43c86a
 begin
@@ -277,14 +272,14 @@ end
 # ╔═╡ 5d9312be-3e1d-11eb-184e-6fc51d067282
 begin
 	vg = collect(0.0:0.01:1.2)';
-	evgs = vg.^2.0;
+	qvgs = vg.^2.0;
 	vd = collect(0.0:0.01:1.2)';
-	evds = vd.^0.5;
+	evds = exp.(vd);
 	le = length(vg);
 	vgc = ones(1,le) .* cvgs;
-	evgc = vgc.^2.0;
+	qvgc = vgc.^2.0;
 	vdc = ones(1,le) .* cvds;
-	evdc = vdc.^0.5;
+	evdc = exp.(vdc);
 	len = ones(1,le) .* cl;
 	wid = ones(1,le) .* cw;
 	vbc = zeros(1,le);
@@ -292,30 +287,12 @@ end;
 
 # ╔═╡ f67a824c-3e35-11eb-0d62-215d8f7aaeca
 begin
-	dp = [ vg; vdc; vbc; wid; len; evgs; evdc ];
+	dp = [ vg; vdc; vbc; wid; len; qvgs; evdc ];
 	opp = predict(dp);
 end;
 
-# ╔═╡ b5eaefe0-3e36-11eb-31d4-633a724d1dd9
-begin
-	td = DataFrame( gmid = opp[first(indexin(["gmid"], paramsY)), :]
-		     	  , idW = opp[first(indexin(["idW"], paramsY)), :] );
-	dt = Matrix(sort(td, "gmid"))'
-	nn_idwgmid = plot( dt[1,:], dt[2,:]
-			 	   	 , yscale = :log10
-				     , legend = false
-			 	   	 , yaxis = "id/W", xaxis = "gm/id" );
-	nn_idwgmid = plot!( dt[1,:]
-					   , (reverse ∘ sort)(dd[dd.L .== cl, "idw"])
-			 	   	   , yscale = :log10
-				   	   , lab = "L = " *string(len)
-				       , legend = false
-			 	       , yaxis = "id/W", title = "gm/id" );
-end
-
 # ╔═╡ 5a73a78a-406c-11eb-32e5-356b9cf0bf24
 begin
-	#pv = [ vg; vd; vbc; wid; len; evgs; evdc ];
 	opv = reshape( Iterators.product(vg', vd') |> collect
 		   		 , ((length(vg) * length(vd)), 1));
 	vgd = hcat([ [o...] for o in opv ]...);
@@ -326,10 +303,13 @@ begin
 			; ones(1, slen) .* cw 
 			; ones(1, slen) .* cl
 			; vgd[2,:]'.^(2.0)
-			; vgd[1,:]'.^(0.5) ];
+			; exp.(vgd[1,:])' ];
 		id = reshape( predict(sweep)[first(indexin(["id"], paramsY)), :]
 					, (Int(sqrt(slen)), Int(sqrt(slen))));
 end;
+
+# ╔═╡ f36de5b2-4074-11eb-2086-b987caf75bdd
+surface(vg',vd',id'; c = :blues, xaxis = "Vds", yaxis = "Vgs", zaxis = "Id")
 
 # ╔═╡ Cell order:
 # ╠═9f08514e-357f-11eb-2d48-a5d0177bcc4f
@@ -342,7 +322,7 @@ end;
 # ╠═d091d5e2-357f-11eb-385b-252f9ee49070
 # ╠═ed7ac13e-357f-11eb-170b-31a27207af5f
 # ╠═293aad98-3587-11eb-0f56-1d8144ad7e84
-# ╠═a002f77c-3580-11eb-0ad8-e946d85c84c7
+# ╟─a002f77c-3580-11eb-0ad8-e946d85c84c7
 # ╠═092d49d4-3584-11eb-226b-bde1f2e49a22
 # ╠═24a21870-360b-11eb-1269-db94fecdb0a6
 # ╠═c6232b50-360b-11eb-18a2-39bdc25fb03b
@@ -353,15 +333,14 @@ end;
 # ╠═0282c34c-3580-11eb-28c5-e5badd2c345f
 # ╠═6b97b4f0-3580-11eb-28e5-b356737b0905
 # ╠═799725d6-4034-11eb-2f62-91ef4cc5693c
-# ╠═8767dc1e-4034-11eb-2c11-91b94e7644b8
-# ╠═115372aa-4038-11eb-2828-6b688d7e0dae
-# ╠═3cf1f458-3a1c-11eb-2d51-a70a21c10295
-# ╠═49e8abac-3e18-11eb-28ca-f9af0718950d
+# ╟─8767dc1e-4034-11eb-2c11-91b94e7644b8
+# ╟─115372aa-4038-11eb-2828-6b688d7e0dae
+# ╟─3cf1f458-3a1c-11eb-2d51-a70a21c10295
+# ╠═48a26e26-4e72-11eb-222d-090029af4981
 # ╠═219e21a4-3e1d-11eb-2a02-fd152e843650
 # ╠═b8fd5de8-403a-11eb-0312-6dc9000006ea
 # ╠═f36de5b2-4074-11eb-2086-b987caf75bdd
-# ╠═b5eaefe0-3e36-11eb-31d4-633a724d1dd9
-# ╠═f2dc08a6-3a1e-11eb-08b3-81a2ce43c86a
+# ╟─f2dc08a6-3a1e-11eb-08b3-81a2ce43c86a
 # ╠═5d9312be-3e1d-11eb-184e-6fc51d067282
 # ╠═f67a824c-3e35-11eb-0d62-215d8f7aaeca
 # ╠═5a73a78a-406c-11eb-32e5-356b9cf0bf24

@@ -69,10 +69,10 @@ end;
 
 # Processing, Fitlering, Sampling and Shuffling
 dataFrame.QVgs = dataFrame.Vgs.^2.0;
-#dataFrame.QVds = dataFrame.Vds.^2.0;
 #dataFrame.RVgs = dataFrame.Vgs.^0.5;
-dataFrame.RVds = dataFrame.Vds.^0.5;
-dataFrame.Vdgs = dataFrame.Vds .* dataFrame.Vgs;
+#dataFrame.QVds = dataFrame.Vds.^2.0;
+#dataFrame.RVds = dataFrame.Vds.^0.5;
+dataFrame.EVds = exp.(dataFrame.Vds);
 dataFrame.Vgs = round.(dataFrame.Vgs, digits = 2);
 
 # Get rid of rows iwth NA and/or Inf and shuffle
@@ -83,10 +83,6 @@ df = shuffleobs(dataFrame[mask,:]);
 paramsXY = names(dataFrame);
 paramsX = filter((p) -> isuppercase(first(p)), paramsXY);
 paramsY = filter((p) -> !in(p, paramsX), paramsXY);
-
-# Use subset of Parameters for Trainign
-#paramsX = ["W", "L", "Vgs", "Vds", "EVgs", "EVds" ];
-#paramsY = ["id", "gm", "gds", "fug", "vth", "vdsat", "A0", "gmid", "idW"];
 
 # Number of In- and Outputs, for respective NN Layers
 numX = length(paramsX);
@@ -122,7 +118,7 @@ trainX,validX = splitobs(dataX, splitRatio);
 trainY,validY = splitobs(dataY, splitRatio);
 
 # Create training and validation Batches
-batchSize = 2500;
+batchSize = 1500;
 trainSet = Flux.Data.DataLoader( (trainX, trainY)
                                , batchsize = batchSize
                                , shuffle = true );
@@ -255,7 +251,7 @@ end;
 vgs = collect(0.0:0.01:1.2)';
 qvgs = vgs.^2.0;
 vds = collect(0.0:0.01:1.2)';
-qvds = vds.^2.0;
+evds = exp.(vds);
 len = length(vgs);
 W = 1.0e-6;
 w = ones(1,len) .* W;
@@ -278,7 +274,7 @@ idtTrue = dataFrame[ ( (dataFrame.W .== W)
                    , "id" ];
 
 # Input matrix for φ according to paramsX
-xt = [vgs; vdc; vbc; w; l; qvgs; qvdc; (vgs .* vdc) ];
+xt = [vgs; vdc; vbc; w; l; qvgs; evds];
 
 # Prediction from φ
 # ["id", "gm", "gds", "fug", "vth", "vdsat"]
@@ -291,7 +287,7 @@ idoTrue = dataFrame[ ( (dataFrame.W .== W)
                    , "id" ];
 
 # Input matrix for φ according to paramsX
-xo = [vgc; vds; vbc; w; l; qvgc; qvds; (vgc .* vds)];
+xo = [vgc; vds; vbc; w; l; qvgc; evds];
 
 # Prediction from φ 
 idoPred = predict(xo)[first(indexin(["id"], paramsY)),:];

@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.12.17
+# v0.12.18
 
 using Markdown
 using InteractiveUtils
@@ -262,6 +262,12 @@ begin
 	∂idw_∂L = derivative(∂idW, 3e-7)
 end
 
+# ╔═╡ 16e40b2c-415b-11eb-0083-45f080413768
+f = (x) -> 2x;
+
+# ╔═╡ 2daf0be8-415b-11eb-3d72-19f6d15a2e77
+derivative(f,1000)
+
 # ╔═╡ Cell order:
 # ╟─3d9fe546-3e12-11eb-3e0d-7f5e9d423e92
 # ╠═647ab7f4-3e12-11eb-29a9-cd98784528f1
@@ -290,3 +296,5 @@ end
 # ╟─693f007c-4107-11eb-194f-25b6811ceee2
 # ╠═412d1876-4146-11eb-1dcc-31217a410d35
 # ╠═c850e59c-4154-11eb-1931-cb3c7e18356d
+# ╠═16e40b2c-415b-11eb-0083-45f080413768
+# ╠═2daf0be8-415b-11eb-3d72-19f6d15a2e77

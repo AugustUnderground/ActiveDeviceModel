@@ -311,6 +311,9 @@ end;
 # ╔═╡ f36de5b2-4074-11eb-2086-b987caf75bdd
 surface(vg',vd',id'; c = :blues, xaxis = "Vds", yaxis = "Vgs", zaxis = "Id")
 
+# ╔═╡ 41a12e32-4f26-11eb-3a32-5b3e1efd59d5
+display(sweep)
+
 # ╔═╡ Cell order:
 # ╠═9f08514e-357f-11eb-2d48-a5d0177bcc4f
 # ╠═5d549288-3a0c-11eb-0ac3-595f54266cb3
@@ -344,3 +347,4 @@ surface(vg',vd',id'; c = :blues, xaxis = "Vds", yaxis = "Vgs", zaxis = "Id")
 # ╠═5d9312be-3e1d-11eb-184e-6fc51d067282
 # ╠═f67a824c-3e35-11eb-0d62-215d8f7aaeca
 # ╠═5a73a78a-406c-11eb-32e5-356b9cf0bf24
+# ╠═41a12e32-4f26-11eb-3a32-5b3e1efd59d5

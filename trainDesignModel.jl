@@ -69,7 +69,7 @@ dfR = DataFrame( L = dfW.L
                , Vgs = dfW.Vgs
                , QVgs = (dfW.Vgs .^ 2.0)
                , Vds = dfW.Vds
-               , QVds = (dfW.Vds .^ 2.0)
+               , EVds = epx.(dfW.Vds)
                , gmid = dfW.gm ./ dfW.id
                , vdsat = dfW.vdsat
                , A0 = dfW.gm ./ dfW.gds
@@ -83,7 +83,7 @@ mask = (vec ∘ collect)(sum(Matrix(isinf.(dfR) .| isnan.(dfR)), dims = 2) .== 0
 df = shuffleobs(dfR[mask, :]);
 
 # Use all Parameters for training
-paramsX = ["L", "vdsat", "Vds", "QVds"];
+paramsX = ["L", "vdsat", "Vds", "EVds"];
 paramsY = ["A0", "A0Log", "fug", "fugLog", "idW", "idWLog", "Vgs", "QVgs"];
 
 # Number of In- and Outputs, for respective NN Layers
@@ -130,9 +130,6 @@ validSet = Flux.Data.DataLoader( (validX, validY)
          ) |> gpu;
 
 # Optimizer Parameters
-#η   = 0.001;
-#β₁  = 0.9;
-#β₂  = 0.999;
 η   = 0.001;
 β₁  = 0.9;
 β₂  = 0.999;

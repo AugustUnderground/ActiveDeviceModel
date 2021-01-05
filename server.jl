@@ -33,7 +33,7 @@ or
         "--host", "-i"
             help = "IP Host Address on which the server listens."
             arg_type = String
-            default = "0.0.0.0"
+            default = read(`hostname -I`, String) |> rstrip |> String;
         "--port", "-p"
             help = "IP Host Address on which the server listens."
             arg_type = Int
@@ -77,8 +77,16 @@ end
 
 function predict(model, req::HTTP.Request)
     io = IOBuffer(HTTP.payload(req))
-    X = JSON.parse(io)
-    println(X)
+    inp = JSON.parse(io)
+
+    X = hcat([ if haskey(inp, x)
+                    inp[x]
+               elseif x == "QVgs"
+                    inp["Vgs"] .* 2.0
+               elseif x == "EVds"
+                    exp.(inp["Vds"])
+               end
+               for x in model.paramsX ]...)'
 
     Y = ((length(size(X)) < 2) ? [X'] : X') |>
          model.trafoX.transform |> 
@@ -86,10 +94,10 @@ function predict(model, req::HTTP.Request)
          model.trafoY.inverse_transform |> 
          adjoint
 
-    Dict( ( model.paramsY[i] => Float(Y[i,:]) 
-            for i = 1:length(model.paramsY) ) )
+    out = Dict( ( model.paramsY[i] => Float64.(Y[i,:]) 
+                  for i = 1:length(model.paramsY) ) )
 
-    HTTP.Response(200, JSON3.json(Y))
+    HTTP.Response(200, JSON.json(out))
 end
 
 function loadModel(path::String)

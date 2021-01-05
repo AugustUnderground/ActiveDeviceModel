@@ -55,3 +55,13 @@ pd.gmid = pd.gm ./ pd.id;
 pd[:,["gm", "id", "gmid"]]
 
 plot(pd.gmid, pd.idw, yscale = :log10)
+
+
+## Test data for server.jl
+
+inp = Dict( "Vgs" => fill(0.6, 121) , "Vds" => collect(0.0:0.01:1.2)
+          , "Vbs" => fill(0.0, 121)
+          , "W" => fill(2e-6, 121)
+          , "L" => fill(3e-7, 121) ) |> JSON.json
+
+write("test.json", inp)

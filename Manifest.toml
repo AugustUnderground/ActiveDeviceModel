@@ -470,6 +470,18 @@ git-tree-sha1 = "92d8f9f208637e8d2d28c664051a00569c01493d"
 uuid = "5ae413db-bbd1-5e63-b57d-d24a61df00f5"
 version = "2.1.5+1"
 
+[[ElasticArrays]]
+deps = ["Adapt"]
+git-tree-sha1 = "e02f9afb4e405ba25b86f5ead6819e6ff5423b2a"
+uuid = "fdbdab4c-e67f-52f5-8c3f-e7b388dad3d4"
+version = "1.2.4"
+
+[[ElasticPDMats]]
+deps = ["LinearAlgebra", "MacroTools", "PDMats"]
+git-tree-sha1 = "5157c93fe9431a041e4cd84265dfce3d53a52323"
+uuid = "2904ab23-551e-5aed-883f-487f97af5226"
+version = "0.2.2"
+
 [[Expat_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
 git-tree-sha1 = "1402e52fcda25064f51c77a9655ce8680b76acf0"
@@ -521,6 +533,12 @@ version = "3.3.9+7"
 git-tree-sha1 = "acebe244d53ee1b461970f8910c235b259e772ef"
 uuid = "9aa1b823-49e4-5ca5-8b0f-3971ec8bab6a"
 version = "0.3.2"
+
+[[FastGaussQuadrature]]
+deps = ["LinearAlgebra", "SpecialFunctions"]
+git-tree-sha1 = "3a4939db42fbed6d52c81190ca39afc5017c9841"
+uuid = "442a2c76-b920-505d-bb47-c5924d526838"
+version = "0.4.4"
 
 [[FileWatching]]
 uuid = "7b1f6079-737a-58dc-b8bc-7a2ca5c1b5ee"
@@ -650,15 +668,21 @@ version = "0.53.0+0"
 
 [[GTK3_jll]]
 deps = ["ATK_jll", "Artifacts", "Cairo_jll", "Fontconfig_jll", "FreeType2_jll", "FriBidi_jll", "Glib_jll", "Graphene_jll", "HarfBuzz_jll", "JLLWrappers", "Libdl", "Libepoxy_jll", "Pango_jll", "Pkg", "Wayland_jll", "Xorg_libX11_jll", "Xorg_libXcomposite_jll", "Xorg_libXcursor_jll", "Xorg_libXdamage_jll", "Xorg_libXext_jll", "Xorg_libXfixes_jll", "Xorg_libXi_jll", "Xorg_libXinerama_jll", "Xorg_libXrandr_jll", "Xorg_libXrender_jll", "adwaita_icon_theme_jll", "at_spi2_atk_jll", "gdk_pixbuf_jll", "iso_codes_jll", "xkbcommon_jll"]
-git-tree-sha1 = "98fafcb3e4bedbc9c463708b64b4e647a846c915"
+git-tree-sha1 = "2bfd6b0c19ae1644541a792ce26fc6383db2ffd8"
 uuid = "77ec8976-b24b-556a-a1bf-49a033a670a6"
-version = "3.24.11+4"
+version = "3.24.11+5"
 
 [[GalacticOptim]]
 deps = ["ArrayInterface", "ConsoleProgressMonitor", "DiffEqBase", "DiffResults", "FiniteDiff", "Flux", "ForwardDiff", "Logging", "LoggingExtras", "Optim", "Printf", "ProgressLogging", "Reexport", "Requires", "ReverseDiff", "TerminalLoggers", "Tracker", "Zygote"]
 git-tree-sha1 = "2e85bf53ce80eedf4bd820156286997268feb2a4"
 uuid = "a75be94c-b780-496d-a8a9-0878b188d577"
 version = "0.4.4"
+
+[[GaussianProcesses]]
+deps = ["Distances", "Distributions", "ElasticArrays", "ElasticPDMats", "FastGaussQuadrature", "ForwardDiff", "LinearAlgebra", "Optim", "PDMats", "Printf", "ProgressMeter", "Random", "RecipesBase", "ScikitLearnBase", "SpecialFunctions", "StaticArrays", "Statistics", "StatsFuns", "Zygote"]
+git-tree-sha1 = "06f890e71136832f1c577aa443d3777ffa9594fa"
+uuid = "891a1506-143c-57d2-908e-e1f8e92e6de9"
+version = "0.12.3"
 
 [[GenericSVD]]
 deps = ["LinearAlgebra"]

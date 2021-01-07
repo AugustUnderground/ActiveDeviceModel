@@ -16,6 +16,7 @@ using Logging
 using Printf: @printf
 using NumericIO
 
+# Use 🐍Call Packages (SkLearn) for Normalization
 using PyCall
 if !PyCall.conda
     using Pkg
@@ -47,8 +48,8 @@ Base.Filesystem.mkdir(modelDir);
 CUDA.allowscalar(false);
 
 # Set Plot Backend
-unicodeplots();
-#inspectdr();
+#unicodeplots();
+inspectdr();
 
 ######################
 ## Data
@@ -69,7 +70,7 @@ dfR = DataFrame( L = dfW.L
                , Vgs = dfW.Vgs
                , QVgs = (dfW.Vgs .^ 2.0)
                , Vds = dfW.Vds
-               , EVds = epx.(dfW.Vds)
+               , EVds = exp.(dfW.Vds)
                , gmid = dfW.gm ./ dfW.id
                , vdsat = dfW.vdsat
                , A0 = dfW.gm ./ dfW.gds
@@ -83,8 +84,10 @@ mask = (vec ∘ collect)(sum(Matrix(isinf.(dfR) .| isnan.(dfR)), dims = 2) .== 0
 df = shuffleobs(dfR[mask, :]);
 
 # Use all Parameters for training
-paramsX = ["L", "vdsat", "Vds", "EVds"];
-paramsY = ["A0", "A0Log", "fug", "fugLog", "idW", "idWLog", "Vgs", "QVgs"];
+#paramsX = ["L", "gmid", "Vds", "EVds"];
+#paramsY = ["A0", "A0Log", "fug", "fugLog", "idW", "idWLog", "Vgs", "QVgs"];
+paramsX = ["L", "gmid", "Vds"];
+paramsY = ["idW"];
 
 # Number of In- and Outputs, for respective NN Layers
 numX = length(paramsX);
@@ -111,7 +114,7 @@ trainX,validX = splitobs(dataX, splitRatio);
 trainY,validY = splitobs(dataY, splitRatio);
 
 # Create training and validation Batches
-batchSize = 1000;
+batchSize = 500;
 trainSet = Flux.Data.DataLoader( (trainX, trainY)
                                , batchsize = batchSize
                                , shuffle = true );
@@ -124,9 +127,9 @@ validSet = Flux.Data.DataLoader( (validX, validY)
 ######################
 
 # Neural Network
-γ = Chain( Dense(numX,  128,     relu)
-         , Dense(128,    128,    relu) 
-         , Dense(128,    numY)
+γ = Chain( Dense(numX,  32,     relu)
+         , Dense(32,    8,    relu) 
+         , Dense(8,    numY)
          ) |> gpu;
 
 # Optimizer Parameters
@@ -183,7 +186,7 @@ function trainModel()
 end
 
 ### Run Training
-numEpochs = 100;                                     # total number of epochs
+numEpochs = 100;                                    # total number of epochs
 lowestMAE = Inf;                                    # initialize MAE with ∞
 errs = [];                                          # Array of training and validation losses
 
@@ -229,29 +232,28 @@ truPlt = plot();
 for l in unique(dfR.L)
     gmid = dfR[ ( (dfR.L .== l)
                .& (dfR.Vds .== 0.6) )
-              , "vdsat" ];
+              , "gmid" ];
     idW = dfR[ ( (dfR.L .== l)
                .& (dfR.Vds .== 0.6) )
               , "idW" ];
     truPlt = plot!(gmid, idW, yaxis=:log10);
 end
-truPlt
+#truPlt
 
 prdPlt = plot();
 for l in unique(dfR.L)
-    gmid = 0.1:0.01:0.5
+    #gmid = 0.1:0.01:0.5
+    gmid = 1:0.35:15.0
     len = first(size(gmid));
     x = [ repeat([l], len)'
         ; gmid'
-        ; repeat([0.6], len)'
-        ; repeat([0.6], len)' .^ 2 ];
+        ; repeat([0.6], len)' ];
+        #; exp.(repeat([0.6], len))' ];
     prd = predict(x)
-    idW = prd[5,:];
+    #idW = prd[5,:];
+    idW = prd';
     prdPlt = plot!(gmid, idW, yaxis=:log10);
 end
-prdPlt
+#prdPlt
 
-plot(vdsat_sweep, idW
-    , xaxis = ("vdsat", (0.0, 0.6))
-    , yaxis = ("id/W", (0.0, ceil(max(idW...), digits = 4)))
-    );
+plot(truPlt, prdPlt, layout = (1,2))

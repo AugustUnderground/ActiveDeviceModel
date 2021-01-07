@@ -8,6 +8,7 @@ usePython = true;
 using Dates
 using Plots
 using StatsBase
+using Statistics
 using DataFrames
 using JLD2
 using BSON
@@ -76,13 +77,19 @@ dataFrame.EVds = exp.(dataFrame.Vds);
 dataFrame.Vgs = round.(dataFrame.Vgs, digits = 2);
 
 # Get rid of rows iwth NA and/or Inf and shuffle
-mask = (vec ∘ collect)(sum(Matrix(isinf.(dataFrame) .| isnan.(dataFrame)), dims = 2) .== 0);
-df = shuffleobs(dataFrame[mask,:]);
+#mask = (vec ∘ collect)(sum(Matrix(isinf.(dataFrame) .| isnan.(dataFrame)), dims = 2) .== 0);
+#df = shuffleobs(dataFrame[mask,:]);
+#dfW = dataFrame[ dataFrame.W .== 2e-6, :];
+numSamples = 100000;
+idxSamples = rand(1:(dataFrame |> size |> first), numSamples);
+df = dataFrame[idxSamples, :];
 
 # Use all Parameters for training
-paramsXY = names(dataFrame);
-paramsX = filter((p) -> isuppercase(first(p)), paramsXY);
-paramsY = filter((p) -> !in(p, paramsX), paramsXY);
+#paramsXY = names(dataFrame);
+#paramsX = filter((p) -> isuppercase(first(p)), paramsXY);
+#paramsY = filter((p) -> !in(p, paramsX), paramsXY);
+paramsX = ["Vgs", "Vds", "W", "L"];
+paramsY = ["id", "gm", "vdsat", "fug"]; #, "gds", "vth", "fug", "gmb"];
 
 # Number of In- and Outputs, for respective NN Layers
 numX = length(paramsX);
@@ -118,7 +125,7 @@ trainX,validX = splitobs(dataX, splitRatio);
 trainY,validY = splitobs(dataY, splitRatio);
 
 # Create training and validation Batches
-batchSize = 1500;
+batchSize = 100;
 trainSet = Flux.Data.DataLoader( (trainX, trainY)
                                , batchsize = batchSize
                                , shuffle = true );
@@ -214,7 +221,7 @@ plot( 1:numEpochs, losses, lab = ["MSE" "MAE"]
 ######################
 
 ## Load specific model ##
-modelPath = "./model/dev-2020-12-14T17:50:21.395/ptmn90"
+#modelPath = "./model/dev-2020-12-14T17:50:21.395/ptmn90"
 modelFile = modelPath * ".bson";
 trafoInFile = modelPath * ".input";
 trafoOutFile = modelPath * ".output";
@@ -274,7 +281,8 @@ idtTrue = dataFrame[ ( (dataFrame.W .== W)
                    , "id" ];
 
 # Input matrix for φ according to paramsX
-xt = [vgs; vdc; vbc; w; l; qvgs; evds];
+#xt = [vgs; vdc; vbc; w; l; qvgs; evds];
+xt = [ vgs; vdc; w; l ];
 
 # Prediction from φ
 # ["id", "gm", "gds", "fug", "vth", "vdsat"]
@@ -287,7 +295,8 @@ idoTrue = dataFrame[ ( (dataFrame.W .== W)
                    , "id" ];
 
 # Input matrix for φ according to paramsX
-xo = [vgc; vds; vbc; w; l; qvgc; evds];
+#xo = [vgc; vds; vbc; w; l; qvgc; evds];
+xo = [vgc; vds; w; l];
 
 # Prediction from φ 
 idoPred = predict(xo)[first(indexin(["id"], paramsY)),:];

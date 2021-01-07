@@ -311,8 +311,54 @@ end;
 # ╔═╡ f36de5b2-4074-11eb-2086-b987caf75bdd
 surface(vg',vd',id'; c = :blues, xaxis = "Vds", yaxis = "Vgs", zaxis = "Id")
 
-# ╔═╡ 41a12e32-4f26-11eb-3a32-5b3e1efd59d5
-display(sweep)
+# ╔═╡ 22fb2746-50e9-11eb-1c53-9dbe2b11e979
+md"""
+## Reduced Model Analysis
+"""
+
+# ╔═╡ fc7096d8-50e8-11eb-13bc-bda8818325be
+begin	
+	RmodelPath = "./model/dev-2021-01-07T15:22:24.59/ptmn90";
+	RmodelFile = RmodelPath * ".bson";
+	RtrafoInFile = RmodelPath * ".input";
+	RtrafoOutFile = RmodelPath * ".output";
+	Rmodel = BSON.load(RmodelFile);
+	φᵣ = Rmodel[:model];
+	RtrafoX = joblib.load(RtrafoInFile);
+	RtrafoY = joblib.load(RtrafoOutFile);
+	RparamsX = Rmodel[:paramsX];
+	RparamsY = Rmodel[:paramsY];
+end;
+
+# ╔═╡ 3640d672-50e9-11eb-20f7-bf1258644657
+function Rpredict(X)
+ 	rY = ((length(size(X)) < 2) ? [X'] : X') |>
+         RtrafoX.transform |> 
+         adjoint |> φᵣ |> adjoint |>
+         RtrafoY.inverse_transform |> 
+         adjoint
+  	return Float64.(rY)
+end;
+
+# ╔═╡ 45bda8e6-50e9-11eb-025a-7dee332124ca
+nmosᵣ = (vgs, vds, w, l) -> Rpredict([vgs, vds, w, l]);
+
+# ╔═╡ 9b277e56-50e9-11eb-2ab3-31abcf8b0293
+begin
+	Ropv = reshape( Iterators.product(vg', vd') |> collect
+		   		  , ((length(vg) * length(vd)), 1));
+	Rvgd = hcat([ [o...] for o in Ropv ]...);
+	Rslen = size(Rvgd)[2]
+	Rsweep = [ Rvgd[2,:]'
+			 ; Rvgd[1,:]'
+			 ; ones(1, Rslen) .* cw 
+			 ; ones(1, Rslen) .* cl ];
+		idᵣ = reshape( Rpredict(Rsweep)[first(indexin(["id"], RparamsY)), :]
+					 , (Int(sqrt(Rslen)), Int(sqrt(Rslen))));
+end;
+
+# ╔═╡ 8ef3debc-50ea-11eb-2cb1-1de0e0d18dd2
+surface(vg',vd',idᵣ'; c = :greens, xaxis = "Vds", yaxis = "Vgs", zaxis = "Id")
 
 # ╔═╡ Cell order:
 # ╠═9f08514e-357f-11eb-2d48-a5d0177bcc4f
@@ -347,4 +393,9 @@ display(sweep)
 # ╠═5d9312be-3e1d-11eb-184e-6fc51d067282
 # ╠═f67a824c-3e35-11eb-0d62-215d8f7aaeca
 # ╠═5a73a78a-406c-11eb-32e5-356b9cf0bf24
-# ╠═41a12e32-4f26-11eb-3a32-5b3e1efd59d5
+# ╟─22fb2746-50e9-11eb-1c53-9dbe2b11e979
+# ╠═8ef3debc-50ea-11eb-2cb1-1de0e0d18dd2
+# ╠═fc7096d8-50e8-11eb-13bc-bda8818325be
+# ╠═3640d672-50e9-11eb-20f7-bf1258644657
+# ╠═45bda8e6-50e9-11eb-025a-7dee332124ca
+# ╠═9b277e56-50e9-11eb-2ab3-31abcf8b0293

@@ -6,9 +6,11 @@ usePython = true;
 #####################
 
 using Dates
+using Random
+using Statistics
 using Plots
 using StatsBase
-using Statistics
+using Distributions
 using DataFrames
 using JLD2
 using BSON
@@ -59,6 +61,8 @@ unicodeplots();
 #plotly();
 #inspectdr();
 
+rngSeed = 666;
+
 ######################
 ## Data
 ######################
@@ -70,9 +74,6 @@ end;
 
 # Processing, Fitlering, Sampling and Shuffling
 dataFrame.QVgs = dataFrame.Vgs.^2.0;
-#dataFrame.RVgs = dataFrame.Vgs.^0.5;
-#dataFrame.QVds = dataFrame.Vds.^2.0;
-#dataFrame.RVds = dataFrame.Vds.^0.5;
 dataFrame.EVds = exp.(dataFrame.Vds);
 dataFrame.Vgs = round.(dataFrame.Vgs, digits = 2);
 
@@ -80,16 +81,24 @@ dataFrame.Vgs = round.(dataFrame.Vgs, digits = 2);
 #mask = (vec ∘ collect)(sum(Matrix(isinf.(dataFrame) .| isnan.(dataFrame)), dims = 2) .== 0);
 #df = shuffleobs(dataFrame[mask,:]);
 #dfW = dataFrame[ dataFrame.W .== 2e-6, :];
-numSamples = 100000;
-idxSamples = rand(1:(dataFrame |> size |> first), numSamples);
+
+#numSamples = 200000;
+numSamples = 666666;
+idxSamples = StatsBase.sample( MersenneTwister(rngSeed)
+                             , 1:(dataFrame |> size |> first)
+                             , numSamples
+                             ; replace = false);
 df = dataFrame[idxSamples, :];
 
 # Use all Parameters for training
 #paramsXY = names(dataFrame);
 #paramsX = filter((p) -> isuppercase(first(p)), paramsXY);
 #paramsY = filter((p) -> !in(p, paramsX), paramsXY);
-paramsX = ["Vgs", "Vds", "W", "L"];
-paramsY = ["id", "gm", "vdsat", "fug"]; #, "gds", "vth", "fug", "gmb"];
+paramsX = ["Vgs", "QVgs", "Vds", "EVds", "W", "L"];
+#paramsY = ["id", "gm", "vdsat", "fug", "gds", "vth"];
+#paramsY = ["cgd", "cgb", "cgs", "cds", "csb", "cdb"];
+paramsY = ["vth", "vdsat", "id", "gm", "gmb", "gds", "fug"
+          , "cgd", "cgb", "cgs", "cds", "csb", "cdb" ];
 
 # Number of In- and Outputs, for respective NN Layers
 numX = length(paramsX);
@@ -103,9 +112,9 @@ rawY = Matrix(df[:, paramsY ])';
 if usePython
     @sk_import preprocessing: QuantileTransformer;
     trafoX = QuantileTransformer( output_distribution = "uniform"
-                                , random_state = 666 );
+                                , random_state = rngSeed );
     trafoY = QuantileTransformer( output_distribution = "uniform"
-                                , random_state = 666 );
+                                , random_state = rngSeed );
     dataX = rawX |> adjoint |> trafoX.fit_transform |> adjoint;
     dataY = rawY |> adjoint |> trafoY.fit_transform |> adjoint;
     joblib.dump(trafoX, trafoInFile)
@@ -125,7 +134,7 @@ trainX,validX = splitobs(dataX, splitRatio);
 trainY,validY = splitobs(dataY, splitRatio);
 
 # Create training and validation Batches
-batchSize = 100;
+batchSize = 666;
 trainSet = Flux.Data.DataLoader( (trainX, trainY)
                                , batchsize = batchSize
                                , shuffle = true );
@@ -269,7 +278,7 @@ vgc = ones(1,len) .* vg;
 qvgc = vgc.^2.0;
 vd = 0.6;
 vdc = ones(1,len) .* vd;
-qvdc = vdc.^2.0;
+evdc = exp.(vdc);
 vbc = zeros(1,len);
 
 ## Transfer Characterisitc
@@ -282,7 +291,7 @@ idtTrue = dataFrame[ ( (dataFrame.W .== W)
 
 # Input matrix for φ according to paramsX
 #xt = [vgs; vdc; vbc; w; l; qvgs; evds];
-xt = [ vgs; vdc; w; l ];
+xt = [ vgs; qvgs; vdc; evdc; w; l ];
 
 # Prediction from φ
 # ["id", "gm", "gds", "fug", "vth", "vdsat"]
@@ -296,7 +305,7 @@ idoTrue = dataFrame[ ( (dataFrame.W .== W)
 
 # Input matrix for φ according to paramsX
 #xo = [vgc; vds; vbc; w; l; qvgc; evds];
-xo = [vgc; vds; w; l];
+xo = [vgc; qvgc; vds; evds; w; l];
 
 # Prediction from φ 
 idoPred = predict(xo)[first(indexin(["id"], paramsY)),:];

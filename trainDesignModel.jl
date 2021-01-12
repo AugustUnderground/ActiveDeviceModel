@@ -5,6 +5,7 @@
 using Dates
 using Plots
 using StatsBase
+using Random
 using DataFrames
 using JLD2
 using BSON
@@ -48,8 +49,10 @@ Base.Filesystem.mkdir(modelDir);
 CUDA.allowscalar(false);
 
 # Set Plot Backend
-#unicodeplots();
-inspectdr();
+unicodeplots();
+#pyplot();
+
+rngSeed = 666;
 
 ######################
 ## Data
@@ -61,33 +64,50 @@ dataFrame = jldopen(mosFile, "r") do file
 end;
 
 # Processing, Fitlering, Sampling and Shuffling
+dataFrame.QVgs = dataFrame.Vgs.^2.0;
+dataFrame.EVds = exp.(dataFrame.Vds);
 dataFrame.Vgs = round.(dataFrame.Vgs, digits = 2);
+dataFrame.gmid = dataFrame.gm ./ dataFrame.id;
+dataFrame.A0 = dataFrame.gm ./ dataFrame.gds;
+dataFrame.idW = dataFrame.id ./ dataFrame.W;
+dataFrame.A0Log =  log10.(dataFrame.gm ./ dataFrame.gds);
+dataFrame.idWLog = log10.(dataFrame.id ./ dataFrame.W);
+dataFrame.fugLog = log10.(dataFrame.id ./ dataFrame.W);
 
-dfW = dataFrame[ dataFrame.W .== 2e-6
-              , ["gm", "id", "W", "L", "vdsat", "Vds", "Vgs", "gds", "fug"] ];
-
-dfR = DataFrame( L = dfW.L
-               , Vgs = dfW.Vgs
-               , QVgs = (dfW.Vgs .^ 2.0)
-               , Vds = dfW.Vds
-               , EVds = exp.(dfW.Vds)
-               , gmid = dfW.gm ./ dfW.id
-               , vdsat = dfW.vdsat
-               , A0 = dfW.gm ./ dfW.gds
-               , fug = dfW.fug
-               , idW = dfW.id ./ dfW.W 
-               , A0Log = log.(dfW.gm ./ dfW.gds)
-               , fugLog = log.(dfW.fug)
-               , idWLog = log.(dfW.id ./ dfW.W) );
-
+numSamples = 666666;
+idxSamples = StatsBase.sample( MersenneTwister(rngSeed)
+                             , 1:(dataFrame |> size |> first)
+                             , numSamples
+                             ; replace = false);
+dfR = dataFrame[idxSamples, :];
 mask = (vec ∘ collect)(sum(Matrix(isinf.(dfR) .| isnan.(dfR)), dims = 2) .== 0);
-df = shuffleobs(dfR[mask, :]);
+df = shuffleobs(dfR[mask,:]);
+
+#dfW = dataFrame[ dataFrame.W .== 2e-6
+#              , ["gm", "id", "W", "L", "vdsat", "Vds", "Vgs", "gds", "fug"] ];
+#dfR = DataFrame( L = dfW.L
+#               , Vgs = dfW.Vgs
+#               , QVgs = (dfW.Vgs .^ 2.0)
+#               , Vds = dfW.Vds
+#               , EVds = exp.(dfW.Vds)
+#               , gmid = dfW.gm ./ dfW.id
+#               , vdsat = dfW.vdsat
+#               , A0 = dfW.gm ./ dfW.gds
+#               , fug = dfW.fug
+#               , idW = dfW.id ./ dfW.W 
+#               , A0Log = log.(dfW.gm ./ dfW.gds)
+#               , fugLog = log.(dfW.fug)
+#               , idWLog = log.(dfW.id ./ dfW.W) );
+#mask = (vec ∘ collect)(sum(Matrix(isinf.(dfR) .| isnan.(dfR)), dims = 2) .== 0);
+#df = shuffleobs(dfR[mask, :]);
 
 # Use all Parameters for training
-#paramsX = ["L", "gmid", "Vds", "EVds"];
-#paramsY = ["A0", "A0Log", "fug", "fugLog", "idW", "idWLog", "Vgs", "QVgs"];
-paramsX = ["L", "gmid", "Vds"];
-paramsY = ["idW"];
+paramsX = ["L", "gmid", "gm", "id", "Vds", "EVds"];
+paramsY = ["id", "idW", "W"];
+#paramsX = ["L", "gmid", "Vds"];
+#paramsY = ["idW"];
+#paramsX = [ "id", "L", "vth", "Vds" ]; #, "vdsat", "vth" ];
+#paramsY = [ "W", "Vgs" ];
 
 # Number of In- and Outputs, for respective NN Layers
 numX = length(paramsX);
@@ -99,9 +119,9 @@ rawY = Matrix(df[:, paramsY ])';
 
 ### Normalization / Scaling
 trafoX = QuantileTransformer( output_distribution = "uniform"
-                            , random_state = 666 );
+                            , random_state = rngSeed );
 trafoY = QuantileTransformer( output_distribution = "uniform"
-                            , random_state = 666 );
+                            , random_state = rngSeed );
 dataX = rawX |> adjoint |> trafoX.fit_transform |> adjoint;
 dataY = rawY |> adjoint |> trafoY.fit_transform |> adjoint;
 
@@ -109,12 +129,12 @@ joblib.dump(trafoX, trafoXFile);
 joblib.dump(trafoY, trafoYFile);
 
 # Split data in training and validation set
-splitRatio = 0.7;
+splitRatio = 0.8;
 trainX,validX = splitobs(dataX, splitRatio);
 trainY,validY = splitobs(dataY, splitRatio);
 
 # Create training and validation Batches
-batchSize = 500;
+batchSize = 666;
 trainSet = Flux.Data.DataLoader( (trainX, trainY)
                                , batchsize = batchSize
                                , shuffle = true );
@@ -127,9 +147,19 @@ validSet = Flux.Data.DataLoader( (validX, validY)
 ######################
 
 # Neural Network
-γ = Chain( Dense(numX,  32,     relu)
-         , Dense(32,    8,    relu) 
-         , Dense(8,    numY)
+#γ = Chain( Dense(numX,  32,     relu)
+#         , Dense(32,    8,    relu) 
+#         , Dense(8,    numY)
+#         ) |> gpu;
+
+γ = Chain( Dense(numX, 128, relu)
+         , Dense(128, 256, relu) 
+         , Dense(256, 512, relu) 
+         , Dense(512, 1024, relu) 
+         , Dense(1024, 512, relu) 
+         , Dense(512, 256, relu) 
+         , Dense(256, 128, relu) 
+         , Dense(128, numY, relu) 
          ) |> gpu;
 
 # Optimizer Parameters
@@ -228,8 +258,26 @@ function predict(X)
     return Float64.(rY)
 end
 
+len = 41;
+Id = 50e-6;
+Vgs = 0.6;
+gmId = 1.0:0.35:15.0;
+
+x = [ collect(gmId)'
+    ; fill(rand(df.L), 1, len)
+    ; fill(Id, 1, len)
+    ; (gmId .* Id)'
+    ; fill(Vgs, 1, len)
+    ; exp.(fill(Vgs, 1, len)) ];
+
+y = predict(x)
+
+idW = y[5,:];
+
+plot(gmId, idW, yaxis = ("id/W", :log10))
+
 truPlt = plot();
-for l in unique(dfR.L)
+for l in unique(df.L)
     gmid = dfR[ ( (dfR.L .== l)
                .& (dfR.Vds .== 0.6) )
               , "gmid" ];

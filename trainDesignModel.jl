@@ -70,18 +70,19 @@ dataFrame.Vgs = round.(dataFrame.Vgs, digits = 2);
 dataFrame.gmid = dataFrame.gm ./ dataFrame.id;
 dataFrame.A0 = dataFrame.gm ./ dataFrame.gds;
 dataFrame.idW = dataFrame.id ./ dataFrame.W;
-dataFrame.A0Log =  log10.(dataFrame.gm ./ dataFrame.gds);
-dataFrame.idWLog = log10.(dataFrame.id ./ dataFrame.W);
-dataFrame.fugLog = log10.(dataFrame.id ./ dataFrame.W);
+#dataFrame.A0Log =  log10.(dataFrame.gm ./ dataFrame.gds);
+#dataFrame.idWLog = log10.(dataFrame.id ./ dataFrame.W);
+#dataFrame.fugLog = log10.(dataFrame.id ./ dataFrame.W);
 
 numSamples = 666666;
 idxSamples = StatsBase.sample( MersenneTwister(rngSeed)
                              , 1:(dataFrame |> size |> first)
                              , numSamples
                              ; replace = false);
-dfR = dataFrame[idxSamples, :];
-mask = (vec ∘ collect)(sum(Matrix(isinf.(dfR) .| isnan.(dfR)), dims = 2) .== 0);
-df = shuffleobs(dfR[mask,:]);
+df = dataFrame[idxSamples, :];
+
+mask = (vec ∘ collect)(sum(Matrix(isinf.(df) .| isnan.(df)), dims = 2) .== 0);
+df = shuffleobs(df[mask,:]);
 
 #dfW = dataFrame[ dataFrame.W .== 2e-6
 #              , ["gm", "id", "W", "L", "vdsat", "Vds", "Vgs", "gds", "fug"] ];
@@ -102,12 +103,12 @@ df = shuffleobs(dfR[mask,:]);
 #df = shuffleobs(dfR[mask, :]);
 
 # Use all Parameters for training
-paramsX = ["L", "gmid", "gm", "id", "Vds", "EVds"];
-paramsY = ["id", "idW", "W"];
-#paramsX = ["L", "gmid", "Vds"];
-#paramsY = ["idW"];
-#paramsX = [ "id", "L", "vth", "Vds" ]; #, "vdsat", "vth" ];
-#paramsY = [ "W", "Vgs" ];
+#paramsX = [ "L", "gmid", "Vds" ];
+#paramsY = [ "idW" ];
+paramsX = [ "L", "id", "gmid", "gm", "Vds", "EVds" ]; # "vdsat" 
+paramsY = [ "Vgs", "idW", "A0", "fug" ];
+#paramsX = [ "W", "L", "Vgs", "QVgs", "Vds", "EVds"];
+#paramsY = [ "idW", "gmid", "vdsat", "A0", "fug", "id", "gm", "gds"];
 
 # Number of In- and Outputs, for respective NN Layers
 numX = length(paramsX);
@@ -147,9 +148,8 @@ validSet = Flux.Data.DataLoader( (validX, validY)
 ######################
 
 # Neural Network
-#γ = Chain( Dense(numX,  32,     relu)
-#         , Dense(32,    8,    relu) 
-#         , Dense(8,    numY)
+#γ = Chain( Dense(numX,  64,     relu)
+#         , Dense(64,    numY)
 #         ) |> gpu;
 
 γ = Chain( Dense(numX, 128, relu)
@@ -236,15 +236,17 @@ plot( 1:numEpochs, losses, lab = ["MSE" "MAE"]
 ## Evaluation
 ######################
 
-## Load specific model ##
-#modelFile = "./model/2020-10-02T08:50:17.907/ptmn.bson";
-model = BSON.load(modelFile);
-γ = model[:model];
-θ = model[:weights]
-trafoX = joblib.load(trafoXFile)
-trafoY = joblib.load(trafoYFile)
-######################
+## Use Current model ##
 γ = γ |> cpu;
+
+## Load specific model ##
+modelPrefix = "./model/des-2021-01-12T13:58:59.001/ptmn90";
+model = BSON.load(modelPrefix * ".bson");
+γ = model[:model];
+paramsX = model[:paramsX];
+paramsY = model[:paramsY];
+trafoX = joblib.load(modelPrefix * ".input");
+trafoY = joblib.load(modelPrefix * ".output");
 
 ### γ evaluation function for prediction characteristics
 # predict(X) => y, where X = ["L", gmid", "vdsat", "Vds"];
@@ -258,23 +260,25 @@ function predict(X)
     return Float64.(rY)
 end
 
-len = 41;
+gmId = 1.0:0.35:25.0;
+len = length(gmId);
 Id = 50e-6;
-Vgs = 0.6;
-gmId = 1.0:0.35:15.0;
+Vds = 0.6;
 
-x = [ collect(gmId)'
-    ; fill(rand(df.L), 1, len)
+x = [ fill(300e-9, 1, len)
     ; fill(Id, 1, len)
+    ; collect(gmId)'
     ; (gmId .* Id)'
-    ; fill(Vgs, 1, len)
-    ; exp.(fill(Vgs, 1, len)) ];
+    ; fill(Vds, 1, len)
+    ; exp.(fill(Vds, 1, len)) ];
 
-y = predict(x)
+y = predict(x);
 
-idW = y[5,:];
+idW = y[2,:];
 
-plot(gmId, idW, yaxis = ("id/W", :log10))
+inspectdr();
+
+plot(gmId, idW, yscale = :log10)
 
 truPlt = plot();
 for l in unique(df.L)
@@ -284,7 +288,7 @@ for l in unique(df.L)
     idW = dfR[ ( (dfR.L .== l)
                .& (dfR.Vds .== 0.6) )
               , "idW" ];
-    truPlt = plot!(gmid, idW, yaxis=:log10);
+    truPlt = plot!(gmid, idW, yscale = :log10);
 end
 #truPlt
 

@@ -101,7 +101,7 @@ function predict(model, req::HTTP.Request)
 end
 
 function loadModel(path::String)
-    path = "./model/dev-2021-01-04T10:33:31.124/"
+    #path = "./model/dev-2021-01-04T10:33:31.124/"
     files = readdir(path)
 
     modelFile = filter((f) -> endswith(f, "bson"), files) |> first

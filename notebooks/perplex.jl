@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.12.18
+# v0.12.19
 
 using Markdown
 using InteractiveUtils
@@ -14,7 +14,7 @@ macro bind(def, element)
 end
 
 # ╔═╡ bf21b8ec-357f-11eb-023f-6b64f6e0da73
-using DataFrames, StatsBase, JLD2, StatsPlots, PlutoUI, DataInterpolations, PyCall, ScikitLearn, Optim, Random, Statistics, Distributions, BSON, Flux, Zygote, CUDA, PyCall, ScikitLearn, NNlib, CSVFiles, Lazy, BoxCoxTrans, YeoJohnsonTrans
+using DataFrames, StatsBase, JLD2, StatsPlots, PlutoUI, DataInterpolations, PyCall, ScikitLearn, Optim, Random, Statistics, Distributions, BSON, Flux, Zygote, CUDA, PyCall, ScikitLearn, NNlib, CSVFiles, Lazy, BoxCoxTrans, YeoJohnsonTrans, StatsBase
 
 # ╔═╡ 31c636ac-55b8-11eb-19d6-8dc9af976a24
 begin
@@ -23,6 +23,7 @@ begin
 	Core.eval(Main, :(using CUDA))
 	Core.eval(Main, :(using NNlib))
 	Core.eval(Main, :(using Flux))
+	Core.eval(Main, :(using StatsBase))
 end
 
 # ╔═╡ 9f08514e-357f-11eb-2d48-a5d0177bcc4f
@@ -48,13 +49,14 @@ md"""
 begin
 	@sk_import preprocessing: PowerTransformer;
 	@sk_import preprocessing: QuantileTransformer;
-end
+end;
 
 # ╔═╡ 478b1cde-3e34-11eb-367b-476c0408e6c3
 joblib = pyimport("joblib");
 
 # ╔═╡ 99ba2bec-4034-11eb-045f-49b2e8eca1de
 plotly();
+#pyplot();
 
 # ╔═╡ d091d5e2-357f-11eb-385b-252f9ee49070
 simData = jldopen("../../data/ptmn90.jld") do file
@@ -253,9 +255,6 @@ $$y_{i}^{(\lambda)} = \begin{cases}
 \end{cases}$$
 """
 
-# ╔═╡ d5132790-5ccc-11eb-21f6-810148865c86
-
-
 # ╔═╡ 2d96bb80-5a39-11eb-1e4f-1dd65b73dbd5
 begin
 	bc(yᵢ; λ = 0.2) = λ != 0 ? (((yᵢ.^λ) .- 1) ./ λ) : log.(yᵢ);
@@ -270,8 +269,10 @@ begin
 	ur1X = StatsBase.transform(ut1X, rawX);
 	ur1Y = StatsBase.transform(ut1Y, rawY);
 	
-	coxX = hcat([ bc(rX; λ = 0.2) for rX in eachrow(ur1X)]...)';
-	coxY = hcat([ bc(rY; λ = 0.2) for rY in eachrow(ur1Y)]...)';
+	#coxX = hcat([ bc(rX; λ = 0.2) for rX in eachrow(ur1X)]...)';
+	#coxY = hcat([ bc(rY; λ = 0.2) for rY in eachrow(ur1Y)]...)';
+	coxX = bc(ur1X; λ = 0.2);
+	coxY = bc(ur1Y; λ = 0.2);
 	
 	ut2X = StatsBase.fit(UnitRangeTransform, coxX; dims = 2, unit = true); 
 	ut2Y = StatsBase.fit(UnitRangeTransform, coxY; dims = 2, unit = true);
@@ -282,15 +283,42 @@ begin
 	us1X = StatsBase.transform(ut1X, Matrix(simSample[:,paramsX])');
 	us1Y = StatsBase.transform(ut1Y, Matrix(simSample[:,paramsY])');
 	
-	usCX = hcat([ bc(rX; λ = 0.2) for rX in eachrow(us1X)]...)';
-	usCY = hcat([ bc(rY; λ = 0.2) for rY in eachrow(us1Y)]...)';
+	usCX = bc(us1X .+ 1.0; λ = 0.2);
+	usCY = bc(us1Y .+ 0.0; λ = 0.2);
 	
 	us2X = StatsBase.transform(ut2X, usCX);
 	us2Y = StatsBase.transform(ut2Y, usCY);
-end
+	
+	usYX = YeoJohnsonTrans.transform(us1X);
+	usYY = YeoJohnsonTrans.transform(us1Y);
+	
+	us3X = StatsBase.standardize(UnitRangeTransform, usYX);
+	us3Y = StatsBase.standardize(UnitRangeTransform, usYY);
+end;
 
 # ╔═╡ 78813f7a-5cd8-11eb-2bea-278bd4f36ec0
-histogram(us2Y[3,:])
+plot( histogram( us1Y[1,:], legend = false, title = "raw", yaxis = "vth")
+	, histogram( us2Y[1,:], legend = false, title = "bct")
+	, histogram( us3Y[1,:], legend = false, title = "yjt")
+	, histogram( us1Y[2,:], legend = false, yaxis = "vdsat")
+	, histogram( us2Y[2,:], legend = false)
+	, histogram( us3Y[2,:], legend = false)
+	, histogram( us1Y[3,:], legend = false, yaxis = "id")
+	, histogram( usCY[3,:], legend = false)
+	, histogram( us3Y[3,:], legend = false)
+	, histogram( us1Y[4,:], legend = false, yaxis = "gm")
+	, histogram( us2Y[4,:], legend = false)
+	, histogram( us3Y[4,:], legend = false)
+	, histogram( us1Y[5,:], legend = false, yaxis = "gmb")
+	, histogram( us2Y[5,:], legend = false)
+	, histogram( us3Y[5,:], legend = false)
+	, histogram( us1Y[6,:], legend = false, yaxis = "gds")
+	, histogram( us2Y[6,:], legend = false)
+	, histogram( us3Y[6,:], legend = false)
+	, histogram( us1Y[7,:], legend = false, yaxis = "fug")
+	, histogram( us2Y[7,:], legend = false)
+	, histogram( us3Y[7,:], legend = false)
+	, layout = (7,3) )
 
 # ╔═╡ 7b5eefa8-5cda-11eb-1427-e75d848c7c54
 begin
@@ -413,7 +441,7 @@ begin
 end;
 
 # ╔═╡ 07a01308-5c91-11eb-1816-75a97d54eb57
-histogram( [myBCT pyBCT]; alpha = 0.5)
+#histogram( [myBCT pyBCT]; alpha = 0.5)
 
 # ╔═╡ 5ba2fb94-5985-11eb-1710-932d14cb2c51
 md"""
@@ -422,24 +450,20 @@ md"""
 
 # ╔═╡ 19e00e34-55b8-11eb-2ecd-3398e288598a
 begin	
-	modelPathₙ = "../model/ptmn90-2021-01-21T15:04:33.212/ptmn90";
+	modelPathₙ = "../model/ptmn90-2021-01-28T11:28:45.811/ptmn90";
 	modelFileₙ = modelPathₙ * ".bson";
-	trafoInFileₙ = modelPathₙ * ".input";
-	trafoOutFileₙ = modelPathₙ * ".output";
 	modelₙ = BSON.load(modelFileₙ);
 	φₙ = modelₙ[:model];
-	trafoXₙ = joblib.load(trafoInFileₙ);
-	trafoYₙ = joblib.load(trafoOutFileₙ);
 	paramsXₙ = modelₙ[:paramsX];
 	paramsYₙ = modelₙ[:paramsY];
+	utX = modelₙ[:utX];
+	utY = modelₙ[:utY];
 	
 	function predictₙ(X)
- 		rY = ((length(size(X)) < 2) ? [X'] : X') |>
-        	 trafoXₙ.transform |> 
-         	 adjoint |> φₙ |> adjoint |>
-         	 trafoYₙ.inverse_transform |> 
-         	 adjoint
-  		return Float64.(rY)
+		X′ = StatsBase.transform(utX, X);
+		Y′ = φₙ(X′);
+		Y = StatsBase.reconstruct(utY, Y′);
+  		return Float64.(Y)
 	end;
 end;
 
@@ -562,8 +586,7 @@ diff(simData.L)
 # ╠═78813f7a-5cd8-11eb-2bea-278bd4f36ec0
 # ╠═49d1543a-5cd7-11eb-0cb9-85934736d352
 # ╠═7b5eefa8-5cda-11eb-1427-e75d848c7c54
-# ╠═21b30176-598e-11eb-0322-19cbd312896d
-# ╠═d5132790-5ccc-11eb-21f6-810148865c86
+# ╟─21b30176-598e-11eb-0322-19cbd312896d
 # ╠═2d96bb80-5a39-11eb-1e4f-1dd65b73dbd5
 # ╠═fda2ce9e-5c82-11eb-2505-c7311cf10ed0
 # ╠═e56185f4-5a3d-11eb-1337-57b0f110e054
@@ -578,7 +601,7 @@ diff(simData.L)
 # ╟─a82d6e12-5c0b-11eb-13d7-c7507911d7f9
 # ╟─2fa2e3a6-5c91-11eb-2a4c-619062a93698
 # ╠═634da1aa-5c91-11eb-0142-e95e6005b872
-# ╟─07a01308-5c91-11eb-1816-75a97d54eb57
+# ╠═07a01308-5c91-11eb-1816-75a97d54eb57
 # ╟─5ba2fb94-5985-11eb-1710-932d14cb2c51
 # ╠═19e00e34-55b8-11eb-2ecd-3398e288598a
 # ╠═917a3ff2-55bb-11eb-36f3-fb1d62827973

@@ -77,8 +77,8 @@ dataFrame.QVgs = dataFrame.Vgs.^2.0;
 dataFrame.EVds = ℯ.^(dataFrame.Vds);
 
 ## Box-Cox Transformation Functions
-bc(yᵢ; λ = 0.2) = λ != 0 ? ((yᵢ.^(λ) .- 1) ./ λ) : log.(yᵢ);
-bc′(y′; λ = 0.2) = λ != 0 ? exp.(log.(λ .* y′ .+ 1) / λ) : exp.(y′);
+#bc(yᵢ; λ = 0.2) = λ != 0 ? ((yᵢ.^(λ) .- 1) ./ λ) : log.(yᵢ);
+#bc′(y′; λ = 0.2) = λ != 0 ? exp.(log.(λ .* y′ .+ 1) / λ) : exp.(y′);
 
 # Define Features and Outputs
 
@@ -101,20 +101,11 @@ numY = length(paramsY);
 rawX = Matrix(dataFrame[:, paramsX ])';
 rawY = Matrix(dataFrame[:, paramsY ])';
 
+utX = StatsBase.fit(UnitRangeTransform, rawX; dims = 2, unit = true); 
+utY = StatsBase.fit(UnitRangeTransform, rawY; dims = 2, unit = true); 
+
 # Fit [0;1] Transform over whole Data
-λ = 0.2;
-
-ut1X = StatsBase.fit(UnitRangeTransform, rawX; dims = 2, unit = true); 
-ut1Y = StatsBase.fit(UnitRangeTransform, rawY; dims = 2, unit = true);
-
-ur1X = StatsBase.transform(ut1X, rawX);
-ur1Y = StatsBase.transform(ut1Y, rawY);
-
-coxX = hcat([ bc(rX; λ = λ) for rX in eachrow(ur1X) ]...)';
-coxY = hcat([ bc(rY; λ = λ) for rY in eachrow(ur1Y) ]...)';
-
-ut2X = StatsBase.fit(UnitRangeTransform, coxX; dims = 2, unit = true); 
-ut2Y = StatsBase.fit(UnitRangeTransform, coxY; dims = 2, unit = true);
+#λ = 0.2;
 
 numSamples = 666666;
 idxSamples = StatsBase.sample( MersenneTwister(rngSeed)
@@ -124,6 +115,22 @@ idxSamples = StatsBase.sample( MersenneTwister(rngSeed)
                              ; replace = false );
 
 df = shuffleobs(dataFrame[idxSamples, :]);
+
+#rawX = Matrix(df[:, paramsX ])';
+#rawY = Matrix(df[:, paramsY ])';
+#
+#ut1X = StatsBase.fit(UnitRangeTransform, rawX; dims = 2, unit = true); 
+#ut1Y = StatsBase.fit(UnitRangeTransform, rawY; dims = 2, unit = true);
+#
+#ur1X = StatsBase.transform(ut1X, rawX);
+#ur1Y = StatsBase.transform(ut1Y, rawY);
+#
+#coxX = bc(ur1X; λ = λ);
+#coxY = bc(ur1Y; λ = λ);
+#
+#ut2X = StatsBase.fit(UnitRangeTransform, coxX; dims = 2, unit = true); 
+#ut2Y = StatsBase.fit(UnitRangeTransform, coxY; dims = 2, unit = true);
+
 #df = dataFrame[idxSamples, :];
 #df = shuffleobs(dataFrame);
 
@@ -146,14 +153,14 @@ df = shuffleobs(dataFrame[idxSamples, :]);
 #joblib.dump(ptX, trafoInFile);
 #joblib.dump(ptY, trafoOutFile);
 
-us1X = StatsBase.transform(ut1X, Matrix(df[:,paramsX])');
-us1Y = StatsBase.transform(ut1Y, Matrix(df[:,paramsY])');
+#us1X = StatsBase.transform(ut1X, Matrix(df[:,paramsX])');
+#us1Y = StatsBase.transform(ut1Y, Matrix(df[:,paramsY])');
 
-usCX = hcat([ bc(rX; λ = λ) for rX in eachrow(us1X)]...)';
-usCY = hcat([ bc(rY; λ = λ) for rY in eachrow(us1Y)]...)';
+#usCX = bc(us1X; λ = λ);
+#usCY = bc(us1Y; λ = λ);
 
-dataX = StatsBase.transform(ut2X, usCX);
-dataY = StatsBase.transform(ut2Y, usCY);
+dataX = StatsBase.transform(utX, Matrix(df[:, paramsX ])');
+dataY = StatsBase.transform(utY, Matrix(df[:, paramsY ])');
 
 # Split data in training and validation set
 splitRatio = 0.8;
@@ -227,12 +234,9 @@ function trainModel()
         bson( modelFile                             # save the current model (cpu)
             , model = (φ |> cpu) 
             , paramsX = paramsX
-            , paramsY = paramsY 
-            , ut1X = ut1X
-            , ut1Y = ut1Y
-            , ut2X = ut2X
-            , ut2Y = ut2Y
-            , lambda = λ );                  
+            , paramsY = paramsY
+            , utX = utX
+            , utY = utY );
         global lowestMAE = meanMAE;                 # update previous lowest MAE
         @printf( "\tNew Model Saved with MAE: %s\n" 
                , formatted(meanMAE, :ENG, ndigits = 4) )
@@ -292,15 +296,11 @@ trafoY = joblib.load(trafoOutFile);
 #end
 
 function predict(X)
-    uX = StatsBase.transform(ut1X, X);
-	cX = hcat([ bc(rX; λ = λ) for rX in eachrow(uX)]...)';
-	X′ = StatsBase.transform(ut2X, cxXT);
-    Y′ = φ(X′);
-    uY = StatsBase.reconstruct(ut2Y, Y′);
-	cY = hcat([ bc′(rY; λ = λ) for rY in eachrow(uY)]...)';
-    Y = StatsBase.reconstruct(ut1Y, cY);
+    X′ = StatsBase.transform(utX, X)
+    Y′ = φ(X′)
+    Y = StatsBase.reconstruct(utY, Y′)
     return Float64.(Y)
-end
+end;
 
 # Arbitrary Operating Point and sizing
 dataFrame.Vgs = round.(dataFrame.Vgs, digits = 2);
@@ -309,7 +309,7 @@ qvgs = vgs.^2.0;
 vds = collect(0.0:0.01:1.2)';
 evds = exp.(vds);
 len = length(vgs);
-W = 1.0e-6;
+W = 2.0e-6;
 w = ones(1,len) .* W;
 L = 3.0e-7;
 l = ones(1,len) .* L;
@@ -335,7 +335,7 @@ xt = [ vgs; qvgs; vdc; evdc; w; l ];
 
 # Prediction from φ
 # ["id", "gm", "gds", "fug", "vth", "vdsat"]
-idtPred  = predict(xt)[first(indexin(["id"], paramsY)),:];
+idtPred = predict(xt)[first(indexin(["id"], paramsY)),:];
 
 ## Output Characterisitc
 idoTrue = dataFrame[ ( (dataFrame.W .== W)
@@ -351,6 +351,8 @@ xo = [vgc; qvgc; vds; evds; w; l];
 idoPred = predict(xo)[first(indexin(["id"], paramsY)),:];
 
 ## Plot Results
+
+#plot(vgs', idtPred)
 
 # Plot Transfer Characterisitc
 tPlt = plot( vgs', [idtTrue idtPred]

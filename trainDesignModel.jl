@@ -17,19 +17,6 @@ using Logging
 using Printf: @printf
 using NumericIO
 
-# Use 🐍Call Packages (SkLearn) for Normalization
-using PyCall
-if !PyCall.conda
-    using Pkg
-    using Conda
-    ENV["PYTHON"] = ""
-    Pkg.build("PyCall")
-    Conda.add("scikit-learn")
-end
-using ScikitLearn
-@sk_import preprocessing: QuantileTransformer;
-joblib = pyimport("joblib");
-
 ######################
 ## Setup
 ######################
@@ -74,39 +61,22 @@ dataFrame.idW = dataFrame.id ./ dataFrame.W;
 #dataFrame.idWLog = log10.(dataFrame.id ./ dataFrame.W);
 #dataFrame.fugLog = log10.(dataFrame.id ./ dataFrame.W);
 
+mask = (vec ∘ collect)(sum(Matrix(isinf.(dataFrame) .| isnan.(dataFrame)), dims = 2) .== 0);
+dff = dataFrame[mask, : ];
+
 numSamples = 666666;
 idxSamples = StatsBase.sample( MersenneTwister(rngSeed)
-                             , 1:(dataFrame |> size |> first)
+                             , 1:(dff |> size |> first)
+                             , StatsBase.pweights(dff.id)
                              , numSamples
-                             ; replace = false);
-df = dataFrame[idxSamples, :];
+                             ; replace = false
+                             , ordered = false );
 
-mask = (vec ∘ collect)(sum(Matrix(isinf.(df) .| isnan.(df)), dims = 2) .== 0);
-df = shuffleobs(df[mask,:]);
-
-#dfW = dataFrame[ dataFrame.W .== 2e-6
-#              , ["gm", "id", "W", "L", "vdsat", "Vds", "Vgs", "gds", "fug"] ];
-#dfR = DataFrame( L = dfW.L
-#               , Vgs = dfW.Vgs
-#               , QVgs = (dfW.Vgs .^ 2.0)
-#               , Vds = dfW.Vds
-#               , EVds = exp.(dfW.Vds)
-#               , gmid = dfW.gm ./ dfW.id
-#               , vdsat = dfW.vdsat
-#               , A0 = dfW.gm ./ dfW.gds
-#               , fug = dfW.fug
-#               , idW = dfW.id ./ dfW.W 
-#               , A0Log = log.(dfW.gm ./ dfW.gds)
-#               , fugLog = log.(dfW.fug)
-#               , idWLog = log.(dfW.id ./ dfW.W) );
-#mask = (vec ∘ collect)(sum(Matrix(isinf.(dfR) .| isnan.(dfR)), dims = 2) .== 0);
-#df = shuffleobs(dfR[mask, :]);
+df = dff[idxSamples, :];
 
 # Use all Parameters for training
-#paramsX = [ "L", "gmid", "Vds" ];
-#paramsY = [ "idW" ];
-paramsX = [ "L", "id", "gmid", "gm", "Vds", "EVds" ]; # "vdsat" 
-paramsY = [ "Vgs", "idW", "A0", "fug" ];
+paramsX = [ "L", "id", "gmid", "gm", "Vds" ]; #, "EVds" ]; # "vdsat" 
+paramsY = [ "Vgs", "idW", "A0" ] #, "fug" ];
 #paramsX = [ "W", "L", "Vgs", "QVgs", "Vds", "EVds"];
 #paramsY = [ "idW", "gmid", "vdsat", "A0", "fug", "id", "gm", "gds"];
 
@@ -118,16 +88,17 @@ numY = length(paramsY);
 rawX = Matrix(df[:, paramsX ])';
 rawY = Matrix(df[:, paramsY ])';
 
-### Normalization / Scaling
-trafoX = QuantileTransformer( output_distribution = "uniform"
-                            , random_state = rngSeed );
-trafoY = QuantileTransformer( output_distribution = "uniform"
-                            , random_state = rngSeed );
-dataX = rawX |> adjoint |> trafoX.fit_transform |> adjoint;
-dataY = rawY |> adjoint |> trafoY.fit_transform |> adjoint;
+boxCox(yᵢ; λ = 0.2) = λ != 0 ? (((yᵢ.^λ) .- 1) ./ λ) : log.(yᵢ);
+coxBox(y′; λ = 0.2) = λ != 0 ? exp.(log.((λ .* y′) .+ 1) / λ) : exp.(y′);
 
-joblib.dump(trafoX, trafoXFile);
-joblib.dump(trafoY, trafoYFile);
+λ = 0.2;
+boxY = boxCox.(rawY; λ = λ);
+
+utX = StatsBase.fit(UnitRangeTransform, rawX; dims = 2, unit = true); 
+utY = StatsBase.fit(UnitRangeTransform, boxY; dims = 2, unit = true); 
+
+dataX = StatsBase.transform(utX, rawX);
+dataY = StatsBase.transform(utY, boxY);
 
 # Split data in training and validation set
 splitRatio = 0.8;
@@ -181,7 +152,6 @@ hub(x, y) = Flux.Losses.huber_loss(γ(x), y, δ = 1, agg = mean);
 
 # Model Parameters (Weights)
 θ = Flux.params(γ) |> gpu;
-#θ₀ = deepcopy(θ);
 
 # Training Loop
 function trainModel()
@@ -207,7 +177,10 @@ function trainModel()
         bson( modelFile
             , model = (γ |> cpu)
             , paramsX = paramsX
-            , paramsY = paramsY );                  # save the current model (cpu)
+            , paramsY = paramsY 
+            , utX = utX
+            , utY = utY
+            , lambda = λ );                  # save the current model (cpu)
         global lowestMAE = meanMAE;                 # update previous lowest MAE
         @printf( "\tNew Model Saved with MAE: %s\n" 
                , formatted(meanMAE, :ENG, ndigits = 4) )
@@ -245,20 +218,19 @@ model = BSON.load(modelPrefix * ".bson");
 γ = model[:model];
 paramsX = model[:paramsX];
 paramsY = model[:paramsY];
-trafoX = joblib.load(modelPrefix * ".input");
-trafoY = joblib.load(modelPrefix * ".output");
+utX = model[:utX];
+utY = model[:utY];
+λ = model[:lambda];
 
 ### γ evaluation function for prediction characteristics
 # predict(X) => y, where X = ["L", gmid", "vdsat", "Vds"];
-# and y = ["A0", "idW", "fug"];
+# and y = [L Id gm/Id gm Vds ℯ.^Vds];
 function predict(X)
-    rY = ((length(size(X)) < 2) ? [X'] : X') |>
-         trafoX.transform |> 
-         adjoint |> γ |> adjoint |>
-         trafoY.inverse_transform |> 
-         adjoint
-    return Float64.(rY)
-end
+    X′ = StatsBase.transform(utX, X)
+    Y′ = γ(X′)
+    Y = StatsBase.reconstruct(utY, coxBox.(Y′; λ = λ))
+    return Float64.(Y)
+end;
 
 gmId = 1.0:0.35:25.0;
 len = length(gmId);
@@ -276,7 +248,7 @@ y = predict(x);
 
 idW = y[2,:];
 
-inspectdr();
+pyplot();
 
 plot(gmId, idW, yscale = :log10)
 

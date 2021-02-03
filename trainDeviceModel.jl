@@ -22,20 +22,6 @@ using NumericIO
 using Lazy
 #using OhMyREPL
 
-## 🐍 Deps
-#using PyCall
-#if !PyCall.conda
-#    using Pkg
-#    using Conda
-#    ENV["PYTHON"] = ""
-#    Pkg.build("PyCall")
-#    Conda.add("scikit-learn")
-#end
-#using ScikitLearn
-#joblib = pyimport("joblib");
-#@sk_import preprocessing: QuantileTransformer;
-#@sk_import preprocessing: PowerTransformer;
-
 ######################
 ## Setup
 ######################
@@ -76,22 +62,17 @@ end;
 dataFrame.QVgs = dataFrame.Vgs.^2.0;
 dataFrame.EVds = ℯ.^(dataFrame.Vds);
 
-## Box-Cox Transformation Functions
-#bc(yᵢ; λ = 0.2) = λ != 0 ? ((yᵢ.^(λ) .- 1) ./ λ) : log.(yᵢ);
-#bc′(y′; λ = 0.2) = λ != 0 ? exp.(log.(λ .* y′ .+ 1) / λ) : exp.(y′);
-
 # Define Features and Outputs
-
 paramsX = ["Vgs", "QVgs", "Vds", "EVds", "W", "L"];
 paramsY = ["vth", "vdsat", "id", "gm", "gmb", "gds", "fug"
           , "cgd", "cgb", "cgs", "cds", "csb", "cdb" ];
 
+#paramsY = ["vth", "vdsat", "id", "gm", "gmb", "gds", "fug"];
+#paramsY = ["cgd", "cgb", "cgs", "cds", "csb", "cdb"];
+
 #paramsXY = names(dataFrame);
 #paramsX = filter((p) -> isuppercase(first(p)), paramsXY);
 #paramsY = filter((p) -> !in(p, paramsX), paramsXY);
-
-#paramsY = ["id", "gm", "vdsat", "fug", "gds", "vth"];
-#paramsY = ["cgd", "cgb", "cgs", "cds", "csb", "cdb"];
 
 # Number of In- and Outputs, for respective NN Layers
 numX = length(paramsX);
@@ -104,60 +85,34 @@ rawY = Matrix(dataFrame[:, paramsY ])';
 utX = StatsBase.fit(UnitRangeTransform, rawX; dims = 2, unit = true); 
 utY = StatsBase.fit(UnitRangeTransform, rawY; dims = 2, unit = true); 
 
-# Fit [0;1] Transform over whole Data
-#λ = 0.2;
-
 numSamples = 666666;
 idxSamples = StatsBase.sample( MersenneTwister(rngSeed)
                              , 1:(dataFrame |> size |> first)
-                             , pweights(dataFrame.id)
+                             , StatsBase.pweights(dataFrame.id)
                              , numSamples
-                             ; replace = false );
+                             ; replace = false 
+                             , ordered = false );
 
-df = shuffleobs(dataFrame[idxSamples, :]);
+df = dataFrame[idxSamples, : ];
+#df = shuffleobs(dataFrame[idxSamples, : ]);
 
-#rawX = Matrix(df[:, paramsX ])';
-#rawY = Matrix(df[:, paramsY ])';
+#numTrainSamples = 666666;
+#numValidSamples = 666;
 #
-#ut1X = StatsBase.fit(UnitRangeTransform, rawX; dims = 2, unit = true); 
-#ut1Y = StatsBase.fit(UnitRangeTransform, rawY; dims = 2, unit = true);
+#idxTrainSamples = StatsBase.sample( MersenneTwister(rngSeed)
+#                                  , 1:(dataFrame |> size |> first)
+#                                  , StatsBase.pweights(dataFrame.id)
+#                                  , numTrainSamples
+#                                  ; replace = false );
 #
-#ur1X = StatsBase.transform(ut1X, rawX);
-#ur1Y = StatsBase.transform(ut1Y, rawY);
+#idxValidSamples = StatsBase.sample( MersenneTwister(rngSeed)
+#                                  , 1:(dataFrame |> size |> first)
+#                                  , StatsBase.pweights(dataFrame.id)
+#                                  , numValidSamples
+#                                  ; replace = false );
 #
-#coxX = bc(ur1X; λ = λ);
-#coxY = bc(ur1Y; λ = λ);
-#
-#ut2X = StatsBase.fit(UnitRangeTransform, coxX; dims = 2, unit = true); 
-#ut2Y = StatsBase.fit(UnitRangeTransform, coxY; dims = 2, unit = true);
-
-#df = dataFrame[idxSamples, :];
-#df = shuffleobs(dataFrame);
-
-### Apply Transformation to Data Sample
-
-#qtX = QuantileTransformer( output_distribution = "uniform"
-#                            , random_state = rngSeed );
-#qtY = QuantileTransformer( output_distribution = "uniform"
-#                            , random_state = rngSeed );
-#dataX = unit1X |> adjoint |> qtX.fit_transform |> adjoint;
-#dataY = unit1Y |> adjoint |> qtY.fit_transform |> adjoint;
-
-#ptX = PowerTransformer( method = "box-cox"
-#                      , standardize = true );
-#ptY = PowerTransformer( method = "box-cox"
-#                      , standardize = true );
-#dataX = unit1X |> adjoint |> ptX.fit_transform |> adjoint;
-#dataY = unit1Y |> adjoint |> ptY.fit_transform |> adjoint;
-
-#joblib.dump(ptX, trafoInFile);
-#joblib.dump(ptY, trafoOutFile);
-
-#us1X = StatsBase.transform(ut1X, Matrix(df[:,paramsX])');
-#us1Y = StatsBase.transform(ut1Y, Matrix(df[:,paramsY])');
-
-#usCX = bc(us1X; λ = λ);
-#usCY = bc(us1Y; λ = λ);
+#trainFrame = shuffleobs(dataFrame[idxTrainSamples, :]);
+#validFrame = shuffleobs(dataFrame[idxValidSamples, :]);
 
 dataX = StatsBase.transform(utX, Matrix(df[:, paramsX ])');
 dataY = StatsBase.transform(utY, Matrix(df[:, paramsY ])');
@@ -167,7 +122,13 @@ splitRatio = 0.8;
 trainX,validX = splitobs(dataX, splitRatio);
 trainY,validY = splitobs(dataY, splitRatio);
 
+#trainX = StatsBase.transform(utX, Matrix(trainFrame[:, paramsX])');
+#trainY = StatsBase.transform(utY, Matrix(trainFrame[:, paramsY])');
+#validX = StatsBase.transform(utX, Matrix(validFrame[:, paramsX])');
+#validY = StatsBase.transform(utY, Matrix(validFrame[:, paramsY])');
+
 # Create training and validation Batches
+#batchSize = 500;
 batchSize = 666;
 trainSet = Flux.Data.DataLoader( (trainX, trainY)
                                , batchsize = batchSize
@@ -281,19 +242,6 @@ trafoY = joblib.load(trafoOutFile);
 ## Use current model ###
 φ = φ |> cpu;
 ######################
-
-### φ evaluation function for prediction characteristics
-#X′ = ((length(size(X)) < 2) ? reshape(X, (size(X)..., 1)) : X');
-#function predict(X)
-#    u1X = StatsBase.transform(urt1X, X) .+ 1;
-#    pX = ptX.transform(u1X') |> adjoint;
-#    X′ = StatsBase.transform(urt2X, pX);
-#    Y′ = φ(X′);
-#    u2Y = StatsBase.reconstruct(urt2Y, Y′);
-#    pY = ptY.inverse_transform(u2Y') |> adjoint;
-#    Y = StatsBase.reconstruct(urt1Y, (pY .- 1));
-#    return Float64.(Y)
-#end
 
 function predict(X)
     X′ = StatsBase.transform(utX, X)

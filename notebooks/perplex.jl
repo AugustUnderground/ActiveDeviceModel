@@ -327,6 +327,9 @@ begin
 	u2XT = StatsBase.transform(ut2X, cxXT);
 end
 
+# ╔═╡ 2bcd6d58-6175-11eb-30a7-d5ff25ba6786
+bc′(-2)
+
 # ╔═╡ fda2ce9e-5c82-11eb-2505-c7311cf10ed0
 begin
 	rawId = simData.id;
@@ -388,8 +391,61 @@ end;
 
 # ╔═╡ 9e85199c-5c00-11eb-1e91-97a23967fd7d
 md"""
-For $(first(size(subSampled))) Samples
+### Design Data
 """
+
+# ╔═╡ 297b36fc-616b-11eb-37d9-2d761bb2e287
+begin
+	simData.gmid = simData.gm ./ simData.id;
+	simData.idW = simData.id ./ simData.W;
+	simData.A0 = simData.gm ./ simData.gds;
+	
+	maskMatrix = Matrix(isinf.(simData) .| isnan.(simData));
+	mask = (vec ∘ collect)(sum(maskMatrix, dims = 2) .== 0 );
+	ddf = simData[mask, :];
+end;
+
+# ╔═╡ 206c8374-618c-11eb-2a44-e9db582f0e97
+(size ∘ first)(ddf)
+
+# ╔═╡ 2e70e0e8-616c-11eb-0bbb-832248e5ba56
+begin
+	#nsd = size(ddf)[1];
+	#msd = 500000;
+	#ns = @>> Lazy.range() map(x -> (nsd / (2^x)));
+	#nSamp = Int.(ceil.(takewhile((x) -> x > msd, ns)));
+	#tSamp = String.(take(length(nSamp), Lazy.cycle(["id", "gm"])));
+	
+	#dSamp = reduce( (dat, smp) -> dat[ StatsBase.sample( MersenneTwister(666)
+    #                          			   			   , 1:(dat |> size |> first)
+	#				   					   			   , pweights(dat[:,smp[2]])
+	#												   , smp[1]
+    #                         			   			   ; replace = false )
+	#								 , : ]
+	#	  		  , zip(numSmpl, typSmpl); init = ddf );
+	
+	dSamp = ddf[ StatsBase.sample( MersenneTwister(666)
+			   					 , 1:(ddf |> size |> first) |> collect
+								 , StatsBase.pweights(ddf[:, "gm"])
+								 , 666666
+								 ; replace = false
+								 , ordered = false )
+			   , : ];
+end;
+
+# ╔═╡ a4ef07d2-616b-11eb-27e3-f77fb919898d
+plot( histogram(bc(dSamp.gmid); yaxis = "gm/Id")
+	, histogram(dSamp.gmid; yaxis = "gm/Id")
+	, histogram(bc(dSamp.idW); yaxis = "Id/W", xaxis = "Value") 
+	, histogram(dSamp.idW; yaxis = "Id/W", xaxis = "Value") 
+ 	; layout = (2,2)
+	, legend = false)
+
+# ╔═╡ 4073993a-6170-11eb-3c72-3b1894f7494c
+describe(simData[:,["vth", "vdsat", "id", "gm", "gmb", "gds", "fug"]])
+
+# ╔═╡ d0ab9ce4-6172-11eb-0f2f-b372d2818a8a
+describe(simData[:,[ "cgd", "cgb", "cgs", "cds", "csb", "cdb" ]])
 
 # ╔═╡ 27cd1128-5c06-11eb-2f2f-2bbe580566f7
 md"""
@@ -450,19 +506,38 @@ md"""
 
 # ╔═╡ 19e00e34-55b8-11eb-2ecd-3398e288598a
 begin	
-	modelPathₙ = "../model/ptmn90-2021-01-28T11:28:45.811/ptmn90";
+	modelPathₙ = "../model/ptmn90-2021-01-28T13:08:19.923/ptmn90";
 	modelFileₙ = modelPathₙ * ".bson";
 	modelₙ = BSON.load(modelFileₙ);
 	φₙ = modelₙ[:model];
 	paramsXₙ = modelₙ[:paramsX];
 	paramsYₙ = modelₙ[:paramsY];
-	utX = modelₙ[:utX];
-	utY = modelₙ[:utY];
+	utXₙ = modelₙ[:utX];
+	utYₙ = modelₙ[:utY];
 	
 	function predictₙ(X)
-		X′ = StatsBase.transform(utX, X);
+		X′ = StatsBase.transform(utXₙ, X);
 		Y′ = φₙ(X′);
-		Y = StatsBase.reconstruct(utY, Y′);
+		Y = StatsBase.reconstruct(utYₙ, Y′);
+  		return Float64.(Y)
+	end;
+end;
+
+# ╔═╡ fae88ea6-6157-11eb-005a-b7fe5ab2bb16
+begin	
+	modelPathₚ = "../model/ptmp90-2021-01-28T11:53:55.782/ptmp90";
+	modelFileₚ = modelPathₚ * ".bson";
+	modelₚ = BSON.load(modelFileₚ);
+	φₚ = modelₚ[:model];
+	paramsXₚ = modelₚ[:paramsX];
+	paramsYₚ = modelₚ[:paramsY];
+	utXₚ = modelₚ[:utX];
+	utYₚ = modelₚ[:utY];
+	
+	function predictₚ(X)
+		X′ = StatsBase.transform(utXₚ, X);
+		Y′ = φₚ(X′);
+		Y = StatsBase.reconstruct(utYₚ, Y′);
   		return Float64.(Y)
 	end;
 end;
@@ -504,18 +579,25 @@ begin
 			 ; fill(lC, 1, len) ];
 	
 	yₙ = predictₙ(sweepₙ);
+	yₚ = predictₚ(sweepₙ);
 	
-	idₚ = reshape( yₙ[first(indexin(["id"], paramsYₙ)), :]
+	idₚₙ = reshape( yₙ[first(indexin(["id"], paramsYₙ)), :]
 				 , (Int(sqrt(len)), Int(sqrt(len))));
-	idₜ = reshape( dat.id
+	idₜₙ = reshape( dat.id
 				 , (Int(sqrt(len)), Int(sqrt(len))));	
+	
+	idₚₚ = reshape( yₚ[first(indexin(["id"], paramsYₚ)), :]
+				 , (Int(sqrt(len)), Int(sqrt(len))));
 end;
 
 # ╔═╡ 57ff103c-55bf-11eb-294a-d5ce2b0557c8
 begin
-	surface(unique(dat.Vgs), unique(dat.Vds), idₜ; c = :blues);
-	surface!(unique(dat.Vgs), unique(dat.Vds), idₚ; c = :reds)
+	surface(unique(dat.Vgs), unique(dat.Vds), idₜₙ; c = :blues, legend = false);
+	surface!(unique(dat.Vgs), unique(dat.Vds), idₚₙ; c = :reds, legend = false)
 end
+
+# ╔═╡ 64509de8-6158-11eb-399c-c5671efffd88
+#surface(unique(dat.Vgs), unique(dat.Vds), idₚₚ; c = :reds, legend = false)
 
 # ╔═╡ c059152c-5a7b-11eb-062c-9f68eca827dc
 md"""
@@ -588,11 +670,18 @@ diff(simData.L)
 # ╠═7b5eefa8-5cda-11eb-1427-e75d848c7c54
 # ╟─21b30176-598e-11eb-0322-19cbd312896d
 # ╠═2d96bb80-5a39-11eb-1e4f-1dd65b73dbd5
+# ╠═2bcd6d58-6175-11eb-30a7-d5ff25ba6786
 # ╠═fda2ce9e-5c82-11eb-2505-c7311cf10ed0
 # ╠═e56185f4-5a3d-11eb-1337-57b0f110e054
 # ╟─7d31084a-5a58-11eb-3565-a96777aca557
 # ╠═bf169d88-5cbf-11eb-3cf8-6fb960492987
 # ╟─9e85199c-5c00-11eb-1e91-97a23967fd7d
+# ╠═297b36fc-616b-11eb-37d9-2d761bb2e287
+# ╠═206c8374-618c-11eb-2a44-e9db582f0e97
+# ╠═2e70e0e8-616c-11eb-0bbb-832248e5ba56
+# ╠═a4ef07d2-616b-11eb-27e3-f77fb919898d
+# ╠═4073993a-6170-11eb-3c72-3b1894f7494c
+# ╠═d0ab9ce4-6172-11eb-0f2f-b372d2818a8a
 # ╟─27cd1128-5c06-11eb-2f2f-2bbe580566f7
 # ╠═8539fb7a-5c0e-11eb-0775-d98cd6cd5437
 # ╠═04a38b9a-5c07-11eb-0348-55b935cb268c
@@ -604,10 +693,12 @@ diff(simData.L)
 # ╠═07a01308-5c91-11eb-1816-75a97d54eb57
 # ╟─5ba2fb94-5985-11eb-1710-932d14cb2c51
 # ╠═19e00e34-55b8-11eb-2ecd-3398e288598a
+# ╠═fae88ea6-6157-11eb-005a-b7fe5ab2bb16
 # ╠═917a3ff2-55bb-11eb-36f3-fb1d62827973
 # ╠═0d74596a-55be-11eb-0dea-ef5d6ab219c6
-# ╟─57ff103c-55bf-11eb-294a-d5ce2b0557c8
+# ╠═57ff103c-55bf-11eb-294a-d5ce2b0557c8
 # ╟─9e3dee36-55bc-11eb-355f-2f28faf37480
+# ╠═64509de8-6158-11eb-399c-c5671efffd88
 # ╟─c059152c-5a7b-11eb-062c-9f68eca827dc
 # ╠═faad964e-5a7b-11eb-30e5-7552e886738c
 # ╟─f9a4397e-5a80-11eb-3843-2db5c69de322

@@ -23,8 +23,8 @@ using NumericIO
 
 # File System
 timeStamp = string(Dates.now());
-dataDir = "../data/";
 modelDir = "./model/des-" * timeStamp * "/";
+dataDir = "../data/";
 deviceName = "ptmn90";
 mosFile = dataDir * deviceName * ".jld";
 modelFile = modelDir * deviceName * ".bson";
@@ -36,8 +36,8 @@ Base.Filesystem.mkdir(modelDir);
 CUDA.allowscalar(false);
 
 # Set Plot Backend
-unicodeplots();
-#pyplot();
+inspectdr();
+#unicodeplots();
 
 rngSeed = 666;
 
@@ -59,7 +59,7 @@ dataFrame.A0 = dataFrame.gm ./ dataFrame.gds;
 dataFrame.idW = dataFrame.id ./ dataFrame.W;
 #dataFrame.A0Log =  log10.(dataFrame.gm ./ dataFrame.gds);
 #dataFrame.idWLog = log10.(dataFrame.id ./ dataFrame.W);
-#dataFrame.fugLog = log10.(dataFrame.id ./ dataFrame.W);
+#dataFrame.fugLog = log10.(dataFrame.fug);
 
 mask = (vec ∘ collect)(sum(Matrix(isinf.(dataFrame) .| isnan.(dataFrame)), dims = 2) .== 0);
 dff = dataFrame[mask, : ];
@@ -75,10 +75,13 @@ idxSamples = StatsBase.sample( MersenneTwister(rngSeed)
 df = dff[idxSamples, :];
 
 # Use all Parameters for training
-paramsX = [ "L", "id", "gmid", "gm", "Vds" ]; #, "EVds" ]; # "vdsat" 
-paramsY = [ "Vgs", "idW", "A0" ] #, "fug" ];
+
+# [id, vdsat, l, vds, vbs ] => [ id/w, vgs, gm, gds, fug]
+paramsX = [ "L", "id", "vdsat", "Vds", "EVds"]; 
+paramsY = [ "idW", "gm", "fug", "gds", "Vgs"]; #, "QVgs" ];
+
+#paramsY = [ "Vgs", "idW", "A0" ] #, "fug" ];
 #paramsX = [ "W", "L", "Vgs", "QVgs", "Vds", "EVds"];
-#paramsY = [ "idW", "gmid", "vdsat", "A0", "fug", "id", "gm", "gds"];
 
 # Number of In- and Outputs, for respective NN Layers
 numX = length(paramsX);
@@ -88,17 +91,19 @@ numY = length(paramsY);
 rawX = Matrix(df[:, paramsX ])';
 rawY = Matrix(df[:, paramsY ])';
 
-boxCox(yᵢ; λ = 0.2) = λ != 0 ? (((yᵢ.^λ) .- 1) ./ λ) : log.(yᵢ);
-coxBox(y′; λ = 0.2) = λ != 0 ? exp.(log.((λ .* y′) .+ 1) / λ) : exp.(y′);
+#boxCox(yᵢ; λ = 0.2) = λ != 0 ? (((yᵢ.^λ) .- 1) ./ λ) : log.(yᵢ);
+#coxBox(y′; λ = 0.2) = λ != 0 ? exp.(log.((λ .* y′) .+ 1) / λ) : exp.(y′);
 
-λ = 0.2;
-boxY = boxCox.(rawY; λ = λ);
+#λ = 0.2;
+#boxY = boxCox.(rawY; λ = λ);
 
 utX = StatsBase.fit(UnitRangeTransform, rawX; dims = 2, unit = true); 
-utY = StatsBase.fit(UnitRangeTransform, boxY; dims = 2, unit = true); 
+utY = StatsBase.fit(UnitRangeTransform, rawY; dims = 2, unit = true); 
+#utY = StatsBase.fit(UnitRangeTransform, boxY; dims = 2, unit = true); 
 
 dataX = StatsBase.transform(utX, rawX);
-dataY = StatsBase.transform(utY, boxY);
+dataY = StatsBase.transform(utY, rawY);
+#dataY = StatsBase.transform(utY, boxY);
 
 # Split data in training and validation set
 splitRatio = 0.8;
@@ -119,10 +124,6 @@ validSet = Flux.Data.DataLoader( (validX, validY)
 ######################
 
 # Neural Network
-#γ = Chain( Dense(numX,  64,     relu)
-#         , Dense(64,    numY)
-#         ) |> gpu;
-
 γ = Chain( Dense(numX, 128, relu)
          , Dense(128, 256, relu) 
          , Dense(256, 512, relu) 
@@ -179,8 +180,8 @@ function trainModel()
             , paramsX = paramsX
             , paramsY = paramsY 
             , utX = utX
-            , utY = utY
-            , lambda = λ );                  # save the current model (cpu)
+            , utY = utY );
+            #, lambda = λ );                         # save the current model (cpu)
         global lowestMAE = meanMAE;                 # update previous lowest MAE
         @printf( "\tNew Model Saved with MAE: %s\n" 
                , formatted(meanMAE, :ENG, ndigits = 4) )
@@ -213,7 +214,8 @@ plot( 1:numEpochs, losses, lab = ["MSE" "MAE"]
 γ = γ |> cpu;
 
 ## Load specific model ##
-modelPrefix = "./model/des-2021-01-12T13:58:59.001/ptmn90";
+modelPrefix = "./model/des-2021-02-08T17:41:45.706/ptmn90"
+#modelPrefix = "./model/des-2021-02-08T18:11:21.781/ptmn90"
 model = BSON.load(modelPrefix * ".bson");
 γ = model[:model];
 paramsX = model[:paramsX];
@@ -222,62 +224,63 @@ utX = model[:utX];
 utY = model[:utY];
 λ = model[:lambda];
 
+dataDir = "../data/";
+deviceName = "ptmn90";
+mosFile = dataDir * deviceName * ".jld";
+dataFrame = jldopen(mosFile, "r") do file
+    file["database"];
+end;
+dataFrame.QVgs = dataFrame.Vgs.^2.0;
+dataFrame.EVds = exp.(dataFrame.Vds);
+dataFrame.Vgs = round.(dataFrame.Vgs, digits = 2);
+dataFrame.gmid = dataFrame.gm ./ dataFrame.id;
+dataFrame.A0 = dataFrame.gm ./ dataFrame.gds;
+dataFrame.idW = dataFrame.id ./ dataFrame.W;
+boxCox(yᵢ; λ = 0.2) = λ != 0 ? (((yᵢ.^λ) .- 1) ./ λ) : log.(yᵢ);
+coxBox(y′; λ = 0.2) = λ != 0 ? exp.(log.((λ .* y′) .+ 1) / λ) : exp.(y′);
+########################
+
 ### γ evaluation function for prediction characteristics
 # predict(X) => y, where X = ["L", gmid", "vdsat", "Vds"];
 # and y = [L Id gm/Id gm Vds ℯ.^Vds];
 function predict(X)
     X′ = StatsBase.transform(utX, X)
     Y′ = γ(X′)
-    Y = StatsBase.reconstruct(utY, coxBox.(Y′; λ = λ))
+    Y = coxBox.(StatsBase.reconstruct(utY, Y′); λ = λ)
     return Float64.(Y)
 end;
 
-gmId = 1.0:0.35:25.0;
-len = length(gmId);
-Id = 50e-6;
+L = 300e-9;
 Vds = 0.6;
 
-x = [ fill(300e-9, 1, len)
-    ; fill(Id, 1, len)
-    ; collect(gmId)'
-    ; (gmId .* Id)'
-    ; fill(Vds, 1, len)
-    ; exp.(fill(Vds, 1, len)) ];
+traceT = sort( dataFrame[ ( (dataFrame.L .== L)
+                         .& (dataFrame.W .== 2e-6)
+                         .& (dataFrame.Vds .== Vds) )
+                        , ["gmid", "idW"] ]
+             , "idW" )
+
+vdsat = 0.05:0.01:0.5;
+len = length(vdsat);
+Id = 25e-6;
+
+x = [ fill(L, len)'
+    ; fill(Id, len)'
+    ; collect(vdsat)'
+    ; fill(Vds, len)' 
+    ; exp.(fill(Vds, len))' ]
 
 y = predict(x);
 
-idW = y[2,:];
+traceP = sort( DataFrame(vdsat = vdsat, idW = y[1,:])
+             , "vdsat" )
 
-pyplot();
+inspectdr();
 
-plot(gmId, idW, yscale = :log10)
+plot( traceP.vdsat, traceP.idW; yscale = :log10
+    , lab = "Approx", w = 2, xaxis = "vdsat", yaxis = "id/W" );
+plot!(traceT.vdsat, traceT.idW, yscale = :log10, lab = "True", w = 2)
 
-truPlt = plot();
-for l in unique(df.L)
-    gmid = dfR[ ( (dfR.L .== l)
-               .& (dfR.Vds .== 0.6) )
-              , "gmid" ];
-    idW = dfR[ ( (dfR.L .== l)
-               .& (dfR.Vds .== 0.6) )
-              , "idW" ];
-    truPlt = plot!(gmid, idW, yscale = :log10);
-end
-#truPlt
+plot( plot(x[3,:], y[1,:], yscale = :log10)
+    , plot(trace.vdsat, trace.idW, yscale = :log10)
+    , layout = (1, 2))
 
-prdPlt = plot();
-for l in unique(dfR.L)
-    #gmid = 0.1:0.01:0.5
-    gmid = 1:0.35:15.0
-    len = first(size(gmid));
-    x = [ repeat([l], len)'
-        ; gmid'
-        ; repeat([0.6], len)' ];
-        #; exp.(repeat([0.6], len))' ];
-    prd = predict(x)
-    #idW = prd[5,:];
-    idW = prd';
-    prdPlt = plot!(gmid, idW, yaxis=:log10);
-end
-#prdPlt
-
-plot(truPlt, prdPlt, layout = (1,2))

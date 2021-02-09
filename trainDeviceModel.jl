@@ -29,8 +29,7 @@ using Lazy
 # File System
 timeStamp = string(Dates.now());
 dataDir = "../data/";
-deviceName = "ptmn90";
-#deviceName = "ptmp90";
+deviceName = "ptmn90"; # "ptmp90";
 modelDir = "./model/" * deviceName * "-" * timeStamp * "/";
 mosFile = dataDir * deviceName * ".jld";
 modelFile = modelDir * deviceName * ".bson";
@@ -42,7 +41,8 @@ Base.Filesystem.mkdir(modelDir);
 CUDA.allowscalar(false);
 
 # Set Plot Backend
-unicodeplots();
+#unicodeplots();
+inspectdr();
 
 # RNGesus Seed
 rngSeed = 666;
@@ -85,7 +85,7 @@ rawY = Matrix(dataFrame[:, paramsY ])';
 utX = StatsBase.fit(UnitRangeTransform, rawX; dims = 2, unit = true); 
 utY = StatsBase.fit(UnitRangeTransform, rawY; dims = 2, unit = true); 
 
-numSamples = 666666;
+numSamples = 6666666;
 idxSamples = StatsBase.sample( MersenneTwister(rngSeed)
                              , 1:(dataFrame |> size |> first)
                              , StatsBase.pweights(dataFrame.id)
@@ -128,7 +128,6 @@ trainY,validY = splitobs(dataY, splitRatio);
 #validY = StatsBase.transform(utY, Matrix(validFrame[:, paramsY])');
 
 # Create training and validation Batches
-#batchSize = 500;
 batchSize = 666;
 trainSet = Flux.Data.DataLoader( (trainX, trainY)
                                , batchsize = batchSize

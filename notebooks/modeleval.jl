@@ -326,7 +326,7 @@ end
 begin
 	idWplot = plot( gmid, pᵧ[2,:]
 				  ; yscale = :log10
-				  , yaxis = "id/W [A]"
+				  , yaxis = "id/W [A/m]"
 				  , xaxis = "gm/id [S/A]"
 				  , title = "Current Density over gm/id"
 				  , legend = false );
@@ -435,6 +435,9 @@ function cost()
 	return (1 / abs(sum(kcl(x))))
 end;
 
+# ╔═╡ e634bc18-67c0-11eb-31fd-efe7f3747e4b
+
+
 # ╔═╡ Cell order:
 # ╟─69d38de8-50fa-11eb-1e3d-4bc49627f622
 # ╠═aa866870-50f9-11eb-268e-8b614dd7f83c
@@ -472,3 +475,4 @@ end;
 # ╠═b6616c00-55a0-11eb-346b-99831a762e03
 # ╠═529afb34-55a0-11eb-36e7-45fdb7453178
 # ╠═29ab0e1e-559e-11eb-2d50-cbfd0e603acb
+# ╠═e634bc18-67c0-11eb-31fd-efe7f3747e4b

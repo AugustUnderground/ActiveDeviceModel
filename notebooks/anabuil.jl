@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.12.18
+# v0.12.19
 
 using Markdown
 using InteractiveUtils
@@ -13,288 +13,251 @@ macro bind(def, element)
     end
 end
 
-# ╔═╡ 647ab7f4-3e12-11eb-29a9-cd98784528f1
-using Flux, Lazy, Printf, Plots, StatsBase, PyCall, BSON, Zygote, CUDA, mna, PlutoUI, Optim, LinearAlgebra, Calculus
+# ╔═╡ c0f94ffa-647c-11eb-0072-231ab368a7d8
+using PlutoUI, Plots, StatsBase, JLD2, BSON, DataFrames, Random, Flux, Zygote, Optim, 
+      NumericIO, MLDataUtils
 
-# ╔═╡ 3c9843ae-3fc1-11eb-2da4-6314f7556996
+# ╔═╡ ce16822a-6ac9-11eb-2b91-47e2eef82d3a
 begin
 	Core.eval(Main, :(using PyCall))
 	Core.eval(Main, :(using Zygote))
 	Core.eval(Main, :(using CUDA))
 	Core.eval(Main, :(using NNlib))
 	Core.eval(Main, :(using Flux))
+	Core.eval(Main, :(using StatsBase))
 end
+
+# ╔═╡ 8222632c-6abf-11eb-2620-3197f758829b
+md"""
+# Setup
+"""
+
+# ╔═╡ 42c16682-6480-11eb-3796-8509a0b773eb
+plotly();
+
+# ╔═╡ c85ba5c6-6522-11eb-1756-d3c4c23da612
+begin
+	boxCox(yᵢ; λ = 0.2) = (λ != 0) ? ((yᵢ.^λ) .- 1) ./ λ : log.(yᵢ) ;
+	coxBox(y′; λ = 0.2) = (λ != 0) ? exp.( log.((λ .* y′) .+ 1) ./ λ ) .- 1 : exp.(y′) ;
+end;
+
+# ╔═╡ 80f1a55c-6ac0-11eb-04dc-633c2ec34d31
+begin
+	dataDir = "../../data/";
+	nmos90file = dataDir * "ptmn90.jld";
+	
+	nmos90data = jldopen(nmos90file, "r") do file
+	    file["database"];
+	end;
+	
+	nmos90data.QVgs = nmos90data.Vgs.^2.0;
+	nmos90data.EVds = exp.(nmos90data.Vds);
+	nmos90data.Vgs = round.(nmos90data.Vgs, digits = 2);
+	nmos90data.gmid = nmos90data.gm ./ nmos90data.id;
+	nmos90data.A0 = nmos90data.gm ./ nmos90data.gds;
+	nmos90data.idW = nmos90data.id ./ nmos90data.W;
+end;
+
+# ╔═╡ 09c86a9e-6ac8-11eb-08fc-f5ad2f562543
+struct Mapping
+    model
+    paramsX
+    paramsY
+    utX
+    utY
+    lambda
+end;
+
+# ╔═╡ 0313bd14-6aca-11eb-2ea8-31bc376c0cb3
+md"""
+# Funciton Mappings
+
+#### Default
+
+Mapping Terminal Voltages and Sizing to Operating Point Parameters:
+
+$$\begin{bmatrix}
+    W \\ L \\ V_{\text{gs}} \\ V_{\text{ds}} \\ V_{\text{bs}} \\
+\end{bmatrix}
+↦
+\begin{bmatrix}
+    i_{\text{d}} \\ g_{\text{m}} \\ g_{\text{ds}} \\ 
+    v_{\text{d sat}} \\ v_{\text{th}} \\ \vdots
+\end{bmatrix}$$
+
+#### As Function of $v_{\text{dsat}}$
+
+$$\begin{bmatrix}
+    i_{\text{d}} \\ L \\ v_{\text{d sat}} \\ V_{\text{ds}} \\ V_{\text{bs}} \\
+\end{bmatrix}
+↦
+\begin{bmatrix}
+    W \\ V_{\text{gs}} \\ g_{\text{m}} \\ g_{\text{ds}} \\ 
+    v_{\text{th}} \\ \vdots
+\end{bmatrix}$$
+
+#### As Function of $\frac{g_{\text{m}}}{i_{\text{d}}}$
+
+$$\begin{bmatrix}
+    g_{\text{m}} \\ i_{\text{d}} \\ V_{\text{gs}} \\ V_{\text{ds}} \\ V_{\text{bs}} \\
+\end{bmatrix}
+↦
+\begin{bmatrix}
+    W \\ L  \\ g_{\text{ds}} \\ 
+    v_{\text{d sat}} \\ v_{\text{th}} \\ \vdots
+\end{bmatrix}$$
+
+
+"""
+
+# ╔═╡ b5dc7438-6ac3-11eb-0f40-2f9cd25f8fdd
+begin
+    prefixNMOS90vdsat = "../model/des-2021-02-08T17:41:45.706/ptmn90";
+    modelNMOS90vdsat = BSON.load(prefixNMOS90vdsat * ".bson");
+    
+    NMOS90vdsat = Mapping( modelNMOS90vdsat[:model]
+                         , modelNMOS90vdsat[:paramsX]
+                         , modelNMOS90vdsat[:paramsY]
+                         , modelNMOS90vdsat[:utX]
+                         , modelNMOS90vdsat[:utY]
+                         , modelNMOS90vdsat[:lambda] );
+
+    function predictN90vdsat(X)
+        X′ = StatsBase.transform(NMOS90vdsat.utX, X)
+        Y′ = NMOS90vdsat.model(X′)
+        Y = coxBox.( StatsBase.reconstruct(NMOS90vdsat.utY, Y′)
+                   ; λ = NMOS90vdsat.lambda)
+        return Float64.(Y)
+    end;
+
+end;
+
+# ╔═╡ 1dfaed64-6aca-11eb-0e83-3f47c7abfe44
+begin
+    prefixNMOS90gmid = "../model/des-2021-02-08T16:38:29.407/ptmn90";
+    modelNMOS90gmid = BSON.load(prefixNMOS90gmid * ".bson");
+
+    NMOS90gmid = Mapping( modelNMOS90gmid[:model]
+                        , modelNMOS90gmid[:paramsX]
+                        , modelNMOS90gmid[:paramsY]
+                        , modelNMOS90gmid[:utX]
+                        , modelNMOS90gmid[:utY]
+                        , modelNMOS90gmid[:lambda] );
+
+    function predictN90gmid(X)
+        X′ = StatsBase.transform(NMOS90gmid.utX, X)
+        Y′ = NMOS90vdsat.model(X′)
+        Y = coxBox.( StatsBase.reconstruct(NMOS90gmid.utY, Y′)
+                   ; λ = NMOS90gmid.lambda)
+        return Float64.(Y)
+    end;
+
+end;
+
+# ╔═╡ bc05bc7e-6ad3-11eb-1afe-0bfcd33073af
+md"""
+### Comparison / Evaluation
+"""
+
+# ╔═╡ 1f248c18-6ad4-11eb-389e-e9bf2198cfd8
+traceT = sort( nmos90data[ ( (nmos90data.L .== 300e-9)
+                         .& (nmos90data.W .== 2e-6)
+                         .& (nmos90data.Vds .== 0.6) )
+                        , ["vdsat", "idW"] ]
+             , "idW" );
+
+# ╔═╡ c7f82f3e-6ad4-11eb-2204-01b12c037b71
+begin
+	slVds01 = @bind vds01 Slider( 0.01 : 0.01 : 1.20
+							    , default = 0.6, show_value = true );
+	slId01 = @bind id01 Slider( 1.0e-6 : 2.5e-7 : 50.0e-6
+						      , default = 1.0e-6, show_value = true );
+	slL01 = @bind l01 Slider( 3.0e-7 : 1.0e-7 : 1.5e-6
+						    , default = 3.0e-7, show_value = true );
+	
+md"""
+`Vds` = $(slVds01) V
+`Id` = $(slId01) A
+`L` = $(slL01) m
+"""
+end
+
+# ╔═╡ 99e31a6e-6ad4-11eb-05ff-1149f92854bb
+begin
+    vdsat = 0.05:0.01:0.5;
+    len = length(traceT.vdsat);
+
+    x = [ fill(l01, len)'
+        ; fill(id01, len)'
+        ; traceT.vdsat' #collect(vdsat)'
+        ; fill(vds01, len)'
+        ; exp.(fill(vds01, len))' ]
+
+    y = predictN90vdsat(x);
+
+    traceP = sort( DataFrame(vdsat = traceT.vdsat, idW = y[1,:])
+                 , "vdsat" )
+end;
+
+# ╔═╡ 5fb3cafa-6ad4-11eb-14de-996dc1e904cf
+begin
+    plot( traceT.vdsat, traceT.idW
+        ; lab = "Truth @ L = 300nm, Vds = 0.6V"
+		, yscale = :log10, w = 2
+        , xaxis = "vdsat", yaxis = "id/W" );
+    plot!( traceP.vdsat, traceP.idW
+         ; lab = "Apprx @ L = $(l01)nm, Vds = $(vds01)V"
+         , legend = :bottomright, w = 2 )
+end
+
+# ╔═╡ aba0fc00-6557-11eb-2788-7508e5ae831c
+md"""
+# Analog Building Blocks
+
+## Current Mirror
+
+Function mapping for Building Block:
+
+$$\begin{bmatrix}
+I_{\text{bias}} \\ 
+M = \frac{M_{\text{cm12}}}{M_{\text{cm11}}} \\ 
+I_{\text{out}} = I_{\text{d, M1}} \approx M \cdot I_{\text{bias}} \\
+\frac{g_{\text{m,M0}}}{I_{\text{d,M0}}} \,\|\,v_{\text{dsat,M0}} \\ 
+f_{\text{ug, M0}} \,\|\, \sigma
+\end{bmatrix}
+\mapsto
+\begin{bmatrix}
+W_{\text{in}} = M_{\text{cm11}} \cdot W \\ 
+W_{\text{out}} = M_{\text{cm12}} \cdot W \\ 
+L \\ 
+V_{\text{in}} = V_{\text{ds, M0}} \\
+V_{\text{out}} = V_{\text{ds, M1}}
+\end{bmatrix}$$
+"""
 
 # ╔═╡ 3d9fe546-3e12-11eb-3e0d-7f5e9d423e92
 md"""
-# Analog Building Blocks
+## Differential Pair (DP)
+
+Proposed function mapping for Building Block:
+
 """
-
-# ╔═╡ 39e96b2e-3fc6-11eb-339c-3dbc92012d34
-plotly();
-
-# ╔═╡ 8d5934b6-3fc0-11eb-3770-97600d88d634
-joblib = pyimport("joblib");
-
-# ╔═╡ 80f4d512-3fbe-11eb-1548-01c553692bf4
-md"""
-### Primitive Devices
-		
-A _MOSFET_ is defined as a `struct` with access to the NN Model and data Transformations.
-"""
-
-# ╔═╡ 9635c21a-4135-11eb-2b1d-65e5ce383bce
-struct MOSFET
-	type
-	model
-	paramsX
-	paramsY
-	trafoX
-	trafoY
-end
-
-# ╔═╡ 2c96d8d6-3fc0-11eb-1835-450c15fec5ac
-devicePath = "./model/dev-2020-12-18T13:26:12.707/ptmn90";
-
-# ╔═╡ 84508ff2-3fc2-11eb-2ad7-77c2953a0515
-function predict(μ, X)
-	rY = ((length(size(X)) < 2) ? [X'] : X') |>
-    	 μ.trafoX.transform |> 
-         adjoint |> μ.model |> adjoint |>
-         μ.trafoY.inverse_transform |> 
-         adjoint
-	return Float64.(rY)
-end;
-
-# ╔═╡ 0669423a-4136-11eb-35dd-d9e990ecb321
-begin
-	model = BSON.load(devicePath * ".bson");
-	nmos = MOSFET( "n"
-				 , model[:model]
-				 , model[:paramsX]
-				 , model[:paramsY]
-				 , joblib.load(devicePath * ".input")
-				 , joblib.load(devicePath * ".output") );
-end;
-
-# ╔═╡ f9db2f6c-4115-11eb-1a7c-9bbb7f651ec5
-opp = (mos, prd, param) -> prd[first(indexin([param], mos.paramsY)), :];
-
-# ╔═╡ 0cbd8a4e-410c-11eb-07ef-1f2cce6153ed
-begin
-	Lmin = 3e-7;
-	Lmax = 3e-6;
-	Wmin = 1e-6;
-	Wmax = 5e-6;
-	Vgsmin = 0.0;
-	Vgsmax = 1.2;
-	Vgsnom = 0.6;
-	Vdsmin = 0.0;
-	Vdsmax = 1.2;
-	Vdsnom = 0.6;
-	sweepLen = 121;
-	
-md"""
-### Design Limitations
-	
-$$L_{\text{min}} = 300\,\text{nm}$$
-$$L_{\text{max}} = 3\,\mu\text{m}$$
-
-$$W_{\text{min}} = 1\,\mu\text{m}$$
-$$W_{\text{max}} = 5\,\mu\text{m}$$
-
-$$V_{\text{gs,min}} = 0.0\,\text{V}$$
-$$V_{\text{gs,max}} = 1.2\,\text{V}$$
-	
-$$V_{\text{ds,min}} = 0.0\,\text{V}$$
-$$V_{\text{ds,max}} = 1.2\,\text{V}$$
-"""
-end
-
-# ╔═╡ ed52203c-410d-11eb-2f54-e7ee56faa0de
-md"""
-Some **ranges** and **constants** for plotting:
-"""
-
-# ╔═╡ 9de1eb8e-4105-11eb-39d3-c7d85be8f5ab
-begin
-	rangeVgs = range(Vgsmin, stop = Vgsmax, length = sweepLen);
-	rangeQVgs = rangeVgs.^2.0;
-	rangeVds = range(Vdsmin, stop = Vdsmax, length = sweepLen);
-	rangeQVds = rangeVds.^2.0;
-	rangeVdgs = rangeVds .* rangeVgs;
-	rangeW = range(Wmin, step = 0.5e-7, length = sweepLen);
-	rangeL = range(Lmin, stop = Lmax, length = sweepLen);
-end;
-
-# ╔═╡ bcdbf078-3fc2-11eb-19f9-bbddbdbca559
-md"""
-### Testing the Device Model
-"""
-
-# ╔═╡ 76cd2dfa-4115-11eb-1c8b-095081973632
-#plot( plot( rangeVgs, idₜ
-#		  , xaxis = "Vgs", yaxis = "Id"
-#		  , title = "Transfer Characteristic" )
-#	, plot( rangeVds, idₒ
-#		  , xaxis = "Vds", yaxis = "Id"
-#		  , title = "Output Characterisitc" )
-#	, layout = (1, 2), legend = false)
-
-# ╔═╡ 6301e07c-4138-11eb-1606-2d9b676f2bdd
-md"""
-### Testing the Design Model
-
-Defined by two functions:
-
-$$f_{\gamma} ( \frac{g_{\text{m}}}{i_{\text{d}}} , V_{\text{ds}}, L ) \mapsto
-[ A_{0}, f_{\text{ug}}, \frac{i_{\text{d}}}{W}, V_{\text{gs}} ]$$ 
-
-$$f_{\nu} ( v_{\text{dsat}} , V_{\text{ds}}, L ) \mapsto
-[ A_{0}, f_{\text{ug}}, \frac{i_{\text{d}}}{W}, V_{\text{gs}} ]$$ 
-"""
-
-# ╔═╡ 4aff32a0-4149-11eb-2efd-a34ab9714a4e
-struct DesignFunction
-	model
-	paramsX
-	paramsY
-	trafoX
-	trafoY
-end;
-
-# ╔═╡ f5df8218-413b-11eb-385d-6dfd7ca750f8
-begin
-	gmidPath = "./model/des-2020-12-18T13:42:19.252/ptmn90";
-	gmidFile = BSON.load(gmidPath * ".bson");
-	γ = DesignFunction( gmidFile[:model]
-	                  , ["L", "gmid", "Vds", "QVds"]
-	                  , [ "A0", "A0Log", "fug", "fugLog"
-                        , "idW", "idWLog", "Vgs", "QVgs" ]
-	                  , joblib.load(gmidPath * ".input")
-                      , joblib.load(gmidPath * ".output") );
-	
-	vdsatPath = "./model/des-2020-12-18T13:48:31.766/ptmn90";
-	vdsatFile = BSON.load(vdsatPath * ".bson");
-	ν = DesignFunction( vdsatFile[:model]
-	                  , ["L", "vdsat", "Vds", "QVds"]
-	                  , [ "A0", "A0Log", "fug", "fugLog"
-                        , "idW", "idWLog", "Vgs", "QVgs" ]
-	                  , joblib.load(vdsatPath * ".input")
-                      , joblib.load(vdsatPath * ".output") );
-end;
-
-# ╔═╡ d54b9bee-413f-11eb-3ea1-bff788c78330
-begin
-	fᵧ = (gmid, vds, l) -> predict(γ, [l; gmid; vds; (vds.^2)])[[1,3,5,7],:];
-	fᵥ = (vdsat, vds, l) -> predict(ν, [l; vdsat; vds; (vds.^2)])[[1,3,5,7],:];
-end;
-
-# ╔═╡ 693f007c-4107-11eb-194f-25b6811ceee2
-begin
-	slVds = @bind Vds Slider(rangeVds, default = Vdsnom, show_value = true);
-	slVgs = @bind Vgs Slider(rangeVgs, default = Vgsnom, show_value = true);
-	slW = @bind W Slider(rangeW, default = Wmin, show_value = true);
-	slL = @bind L Slider(rangeL, default = Lmin, show_value = true);
-	
-	md"""
-	`Vds` = $(slVds) `Vgs` = $(slVds)
-	
-	`W` = $(slW) `L` = $(slL)
-	"""
-end
-
-# ╔═╡ 658008b2-4109-11eb-2128-951666af5ceb
-begin
-	constW = ones(1,sweepLen) .* W;
-	constL = ones(1,sweepLen) .* L;
-	constVgs = ones(1,sweepLen) .* Vgs;
-	constQVgs = constVgs.^2.0;
-	constVds = ones(1,sweepLen) .* Vds;
-	constQVds = constVds.^2.0;
-	constVdgs = constVds .* constVgs;
-	constVbs = zeros(1,sweepLen);
-end;
-
-# ╔═╡ de21a462-3fc2-11eb-3121-db02f67519cc
-begin
-	Xₜ = [ rangeVgs'
-		 ; constVds
-		 ; constVbs
-		 ; constW
-		 ; constL
-		 ; rangeQVgs'
-		 ; constQVds
-		 ; constVds .* rangeVgs' ];
-	pₜ = predict(nmos, Xₜ);
-	idₜ = pₜ[first(indexin(["id"], nmos.paramsY)), :];
-end;
-
-# ╔═╡ f10ee5e6-3fc2-11eb-2916-3578e545b0bf
-begin
-	Xₒ = [ constVgs
-		 ; rangeVds'
-		 ; constVbs
-		 ; constW
-		 ; constL
-		 ; constQVgs
-		 ; rangeQVds'
-		 ; rangeVds' .* constVgs ];
-	pₒ = predict(nmos, Xₒ);
-	idₒ = pₒ[first(indexin(["id"], nmos.paramsY)), :];
-end;
-
-# ╔═╡ 412d1876-4146-11eb-1dcc-31217a410d35
-begin
-	gmid = collect(1:0.1:25)';
-	vds = ones(1,length(gmid)) .* Vds;
-	l = ones(1,length(gmid)) .* L;
-	idW = (gmid,vds,l) -> fᵧ(gmid, vds, l)[3,:];
-end;
-
-# ╔═╡ d84ad25a-414f-11eb-2d7d-eb31e96d3af4
-plot( gmid', idW(gmid, ones(1,length(gmid)) .* Vds, ones(1, length(gmid)) .* L)
-	; xaxis = "gm/id", yaxis = "id/W", yscale = :log10, legend = nothing)
-
-# ╔═╡ c850e59c-4154-11eb-1931-cb3c7e18356d
-begin
-	∂idW = (l) -> idW(10,0.6,l);
-	∂idw_∂L = derivative(∂idW, 3e-7)
-end
-
-# ╔═╡ 16e40b2c-415b-11eb-0083-45f080413768
-f = (x) -> 2x;
-
-# ╔═╡ 2daf0be8-415b-11eb-3d72-19f6d15a2e77
-derivative(f,1000)
 
 # ╔═╡ Cell order:
+# ╟─8222632c-6abf-11eb-2620-3197f758829b
+# ╠═c0f94ffa-647c-11eb-0072-231ab368a7d8
+# ╠═ce16822a-6ac9-11eb-2b91-47e2eef82d3a
+# ╠═42c16682-6480-11eb-3796-8509a0b773eb
+# ╠═c85ba5c6-6522-11eb-1756-d3c4c23da612
+# ╠═80f1a55c-6ac0-11eb-04dc-633c2ec34d31
+# ╠═09c86a9e-6ac8-11eb-08fc-f5ad2f562543
+# ╟─0313bd14-6aca-11eb-2ea8-31bc376c0cb3
+# ╠═b5dc7438-6ac3-11eb-0f40-2f9cd25f8fdd
+# ╠═1dfaed64-6aca-11eb-0e83-3f47c7abfe44
+# ╟─bc05bc7e-6ad3-11eb-1afe-0bfcd33073af
+# ╠═1f248c18-6ad4-11eb-389e-e9bf2198cfd8
+# ╠═99e31a6e-6ad4-11eb-05ff-1149f92854bb
+# ╟─5fb3cafa-6ad4-11eb-14de-996dc1e904cf
+# ╟─c7f82f3e-6ad4-11eb-2204-01b12c037b71
+# ╟─aba0fc00-6557-11eb-2788-7508e5ae831c
 # ╟─3d9fe546-3e12-11eb-3e0d-7f5e9d423e92
-# ╠═647ab7f4-3e12-11eb-29a9-cd98784528f1
-# ╠═39e96b2e-3fc6-11eb-339c-3dbc92012d34
-# ╠═3c9843ae-3fc1-11eb-2da4-6314f7556996
-# ╠═8d5934b6-3fc0-11eb-3770-97600d88d634
-# ╟─80f4d512-3fbe-11eb-1548-01c553692bf4
-# ╠═9635c21a-4135-11eb-2b1d-65e5ce383bce
-# ╠═2c96d8d6-3fc0-11eb-1835-450c15fec5ac
-# ╠═84508ff2-3fc2-11eb-2ad7-77c2953a0515
-# ╠═0669423a-4136-11eb-35dd-d9e990ecb321
-# ╠═f9db2f6c-4115-11eb-1a7c-9bbb7f651ec5
-# ╟─0cbd8a4e-410c-11eb-07ef-1f2cce6153ed
-# ╟─ed52203c-410d-11eb-2f54-e7ee56faa0de
-# ╠═9de1eb8e-4105-11eb-39d3-c7d85be8f5ab
-# ╠═658008b2-4109-11eb-2128-951666af5ceb
-# ╟─bcdbf078-3fc2-11eb-19f9-bbddbdbca559
-# ╠═76cd2dfa-4115-11eb-1c8b-095081973632
-# ╠═de21a462-3fc2-11eb-3121-db02f67519cc
-# ╠═f10ee5e6-3fc2-11eb-2916-3578e545b0bf
-# ╟─6301e07c-4138-11eb-1606-2d9b676f2bdd
-# ╠═4aff32a0-4149-11eb-2efd-a34ab9714a4e
-# ╠═f5df8218-413b-11eb-385d-6dfd7ca750f8
-# ╠═d54b9bee-413f-11eb-3ea1-bff788c78330
-# ╠═d84ad25a-414f-11eb-2d7d-eb31e96d3af4
-# ╟─693f007c-4107-11eb-194f-25b6811ceee2
-# ╠═412d1876-4146-11eb-1dcc-31217a410d35
-# ╠═c850e59c-4154-11eb-1931-cb3c7e18356d
-# ╠═16e40b2c-415b-11eb-0083-45f080413768
-# ╠═2daf0be8-415b-11eb-3d72-19f6d15a2e77

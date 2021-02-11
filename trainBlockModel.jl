@@ -51,9 +51,16 @@ dataFrame.Wout  = dataFrame.Mcm12 .* dataFrame.W;
 #paramsX = ["Ibias", "M", "Iout", "L", "M0_gm", "M1_gm"];               # ← this works
 #paramsY1 = [ "Win", "Wout", "totalOutput_sigmaOut", "M0_vds", "O" ];   # ← this works
 
-paramsX = [ "Ibias", "M", "M1_id", "M0_gm", "M1_gm", "M0_fug" ];
-paramsY1 = [ "Win", "Wout", "L", "totalOutput_sigmaOut", "M0_vds", "O"
-           , "M0_vth", "M0_gds", "M1_gds", "M1_vth", "M1_fug" ];
+#paramsX = [ "Ibias", "M", "O", "M0_vdsat", "M0_fug" ]
+#paramsY1 = [ "Win", "Wout", "L", "totalOutput_sigmaOut"
+#           , "M0_vds", "M1_id", "M0_vth", "M0_gm", "M0_gds"
+#           , "M1_vth", "M1_vdsat", "M1_gm", "M1_gds", "M1_fug" ]
+
+paramsX = [ "Ibias", "L", "M", "O" , "M0_vdsat" ];
+paramsY1 = [ "Win", "Wout", "M1_id", "M0_vds"
+           , "M0_gm", "M0_gds", "M0_fug"
+           , "M1_gm", "M1_gds", "M1_fug"
+           , "totalOutput_sigmaOut" ];
 paramsY2 = [ "M0_Avt_nmos_m__Contribution"
            , "M0_Avt_nmos_m__Sensitivity"
            , "M0_Au0_nmos_m__Contribution"

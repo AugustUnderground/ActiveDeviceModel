@@ -11,6 +11,10 @@ using NNlib
 using Optim
 using NLsolve
 
+using JLD2
+using DataFrames
+using StatsBase
+
 using OhMyREPL
 
 using DiffEqFlux
@@ -179,3 +183,8 @@ plot!(x[1,:], ∇y[2,:])
 plot(x, f.(x));
 plot!(x, Δf.(x));
 plot!(x, ∇f.(x))
+
+ncmPath = "../data/cm-nxh035.jld";
+
+dataFrame = jldopen((f) -> f["database"], ncmPath, "r");
+

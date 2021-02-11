@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.12.19
+# v0.12.20
 
 using Markdown
 using InteractiveUtils
@@ -53,6 +53,8 @@ begin
 	nmos90data.QVgs = nmos90data.Vgs.^2.0;
 	nmos90data.EVds = exp.(nmos90data.Vds);
 	nmos90data.Vgs = round.(nmos90data.Vgs, digits = 2);
+	nmos90data.Vds = round.(nmos90data.Vds, digits = 2);
+	nmos90data.Vbs = round.(nmos90data.Vbs, digits = 2);
 	nmos90data.gmid = nmos90data.gm ./ nmos90data.id;
 	nmos90data.A0 = nmos90data.gm ./ nmos90data.gds;
 	nmos90data.idW = nmos90data.id ./ nmos90data.W;
@@ -67,6 +69,64 @@ struct Mapping
     utY
     lambda
 end;
+
+# ╔═╡ 25bb1062-6b6d-11eb-04c4-aba45c2aa22f
+md"""
+## Statistics
+"""
+
+# ╔═╡ 30efcf98-6b6d-11eb-1593-f530a9c22605
+begin
+    numSamples = 666666;
+
+    idxSamples = StatsBase.sample( MersenneTwister(666)
+                                 , 1:size(nmos90data, 1)
+                                 , StatsBase.pweights(nmos90data.id)
+                                 , numSamples
+                                 ; replace = false 
+                                 , ordered = false );
+
+    sampleData = nmos90data[idxSamples, : ];
+end;
+
+# ╔═╡ 13e844bc-6b7a-11eb-2c5b-07b65ed5c75f
+plot( histogram(sampleData.W; yaxis = "W")
+    , histogram(boxCox.(sampleData.W))
+    , histogram(sampleData.L; yaxis = "L")
+    , histogram(boxCox.(sampleData.L))
+    , histogram(sampleData.Vds; yaxis = "Vds")
+    , histogram(log10.(abs.(sampleData.Vds)))
+    , histogram(sampleData.Vgs; yaxis = "Vgs")
+    , histogram(boxCox.(abs.(sampleData.Vgs)))
+    , histogram(sampleData.Vbs; yaxis = "Vbs")
+    , histogram(boxCox.(abs.(sampleData.Vbs)))
+    ; layout = (5,2), legend = false )
+
+# ╔═╡ afdcae8a-6b6e-11eb-26bf-31ce46fb0231
+plot( histogram(sampleData.id; yaxis = "Id")
+    , histogram(boxCox.(sampleData.id))
+    , histogram(sampleData.gm; yaxis = "gm")
+    , histogram(boxCox.(sampleData.gm))
+    , histogram(sampleData.vdsat; yaxis = "vdsat")
+    , histogram(boxCox.(sampleData.vdsat))
+    , histogram(sampleData.vth; yaxis = "vth")
+    , histogram(boxCox.(sampleData.vth))
+    , histogram(sampleData.gds; yaxis = "gds")
+    , histogram(boxCox.(sampleData.gds))
+    , histogram(sampleData.gmb; yaxis = "gmb")
+    , histogram(boxCox.(sampleData.gmb))
+    , histogram(sampleData.fug; yaxis = "fug")
+    , histogram(boxCox.(sampleData.fug))
+    ; layout = (7,2), legend = false )
+
+# ╔═╡ 1e8c909a-6b72-11eb-30c9-f3063630fb70
+plot( vcat([ [ histogram(sampleData[cxx]) 
+             ; histogram(abs.(sampleData[cxx])) 
+			 ; histogram(boxCox.(abs.(sampleData[cxx]))) ]
+             for cxx in filter( (n) -> startswith(n, "c")
+                               , names(sampleData)) ]...)...
+    ; legend = false, layout = (6,3))
+
 
 # ╔═╡ 0313bd14-6aca-11eb-2ea8-31bc376c0cb3
 md"""
@@ -160,8 +220,8 @@ md"""
 """
 
 # ╔═╡ 1f248c18-6ad4-11eb-389e-e9bf2198cfd8
-traceT = sort( nmos90data[ ( (nmos90data.L .== 300e-9)
-                         .& (nmos90data.W .== 2e-6)
+traceT = sort( nmos90data[ ( (nmos90data.L .== 500e-9)
+                         .& (nmos90data.W .== 2.0e-6)
                          .& (nmos90data.Vds .== 0.6) )
                         , ["vdsat", "idW"] ]
              , "idW" );
@@ -172,12 +232,14 @@ begin
 							    , default = 0.6, show_value = true );
 	slId01 = @bind id01 Slider( 1.0e-6 : 2.5e-7 : 50.0e-6
 						      , default = 1.0e-6, show_value = true );
-	slL01 = @bind l01 Slider( 3.0e-7 : 1.0e-7 : 1.5e-6
+	slL01 = @bind l01 Slider( 1.5e-7 : 1.0e-7 : 1.5e-6
 						    , default = 3.0e-7, show_value = true );
 	
 md"""
 `Vds` = $(slVds01) V
+
 `Id` = $(slId01) A
+
 `L` = $(slL01) m
 """
 end
@@ -202,11 +264,11 @@ end;
 # ╔═╡ 5fb3cafa-6ad4-11eb-14de-996dc1e904cf
 begin
     plot( traceT.vdsat, traceT.idW
-        ; lab = "Truth @ L = 300nm, Vds = 0.6V"
+        ; lab = "Truth @ L = 250nm, Vds = 0.6V"
 		, yscale = :log10, w = 2
         , xaxis = "vdsat", yaxis = "id/W" );
     plot!( traceP.vdsat, traceP.idW
-         ; lab = "Apprx @ L = $(l01)nm, Vds = $(vds01)V"
+         ; lab = "Apprx @ L = $(l01)m, Vds = $(vds01)V"
          , legend = :bottomright, w = 2 )
 end
 
@@ -251,6 +313,11 @@ Proposed function mapping for Building Block:
 # ╠═c85ba5c6-6522-11eb-1756-d3c4c23da612
 # ╠═80f1a55c-6ac0-11eb-04dc-633c2ec34d31
 # ╠═09c86a9e-6ac8-11eb-08fc-f5ad2f562543
+# ╟─25bb1062-6b6d-11eb-04c4-aba45c2aa22f
+# ╠═30efcf98-6b6d-11eb-1593-f530a9c22605
+# ╠═13e844bc-6b7a-11eb-2c5b-07b65ed5c75f
+# ╠═afdcae8a-6b6e-11eb-26bf-31ce46fb0231
+# ╠═1e8c909a-6b72-11eb-30c9-f3063630fb70
 # ╟─0313bd14-6aca-11eb-2ea8-31bc376c0cb3
 # ╠═b5dc7438-6ac3-11eb-0f40-2f9cd25f8fdd
 # ╠═1dfaed64-6aca-11eb-0e83-3f47c7abfe44

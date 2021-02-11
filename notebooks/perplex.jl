@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.12.19
+# v0.12.20
 
 using Markdown
 using InteractiveUtils
@@ -14,7 +14,7 @@ macro bind(def, element)
 end
 
 # ╔═╡ bf21b8ec-357f-11eb-023f-6b64f6e0da73
-using DataFrames, StatsBase, JLD2, StatsPlots, PlutoUI, DataInterpolations, PyCall, ScikitLearn, Optim, Random, Statistics, Distributions, BSON, Flux, Zygote, CUDA, PyCall, ScikitLearn, NNlib, CSVFiles, Lazy, BoxCoxTrans, YeoJohnsonTrans, StatsBase
+using DataFrames, StatsBase, JLD2, StatsPlots, PlutoUI, DataInterpolations, PyCall, ScikitLearn, Optim, Random, Statistics, Distributions, BSON, Flux, Zygote, CUDA, PyCall, ScikitLearn, NNlib, CSVFiles, Lazy, BoxCoxTrans, YeoJohnsonTrans, StatsBase, MLDataUtils
 
 # ╔═╡ 31c636ac-55b8-11eb-19d6-8dc9af976a24
 begin
@@ -64,7 +64,11 @@ simData = jldopen("../../data/ptmn90.jld") do file
 end;
 
 # ╔═╡ ed7ac13e-357f-11eb-170b-31a27207af5f
-simData.Vgs = round.(simData.Vgs, digits = 2);
+begin
+    simData.Vgs = round.(simData.Vgs, digits = 2);
+    simData.Vds = round.(simData.Vds, digits = 2);
+    simData.Vbs = round.(simData.Vbs, digits = 2);
+end;
 
 # ╔═╡ a002f77c-3580-11eb-0ad8-e946d85c84c7
 begin
@@ -87,6 +91,7 @@ end
 # ╔═╡ 092d49d4-3584-11eb-226b-bde1f2e49a22
 begin
 	dd = simData[ ( (simData.Vds .== vds)
+                 .& (simData.Vbs .== 0.0)
 			 	 .& (simData.W .== w) )
 				, ["W", "L", "gm", "gds", "id", "vdsat", "fug"] ];
 	dd.idw = dd.id ./ dd.W;
@@ -94,10 +99,14 @@ begin
 	dd.a0 = dd.gm ./ dd.gds;
 end;
 
+# ╔═╡ a11bf6ae-6afa-11eb-0833-f5b9a6b10f70
+lengths = unique(simData.L);
+
 # ╔═╡ 24a21870-360b-11eb-1269-db94fecdb0a6
 begin
 	idwgmid = plot();
-	for len in 1.5e-7 : 1.0e-7 : 1.5e-6
+	#for len in 1.0e-7 : 1.0e-7 : 1.0e-6
+    for len in lengths
 		idwgmid = plot!( dd[dd.L .== len, "gmid"]
 			 	   	   , dd[dd.L .== len, "idw"]
 			 	   	   , yscale = :log10
@@ -111,7 +120,7 @@ end;
 # ╔═╡ c6232b50-360b-11eb-18a2-39bdc25fb03b
 begin
 	idwvdsat = plot();
-	for len in 1.5e-7 : 1.0e-7 : 1.5e-6
+    for len in lengths
 		idwvdsat = plot!( dd[dd.L .== len, "vdsat"]
 			 	       	, dd[dd.L .== len, "idw"]
 			 	   		, yscale = :log10
@@ -125,7 +134,7 @@ end;
 # ╔═╡ cff6fad6-360b-11eb-3e9b-a7cf6a270f8f
 begin
 	a0gmid = plot();
-	for len in 1.5e-7 : 1.0e-7 : 1.5e-6
+    for len in lengths
 		a0gmid = plot!( dd[dd.L .== len, "gmid"]
 			 	   	  , dd[dd.L .== len, "a0"]
 			 	      , yscale = :log10
@@ -139,7 +148,7 @@ end;
 # ╔═╡ d1b49f7e-360b-11eb-2b4d-b5a6ab46505e
 begin
 	a0vdsat = plot();
-	for len in 1.5e-7 : 1.0e-7 : 1.5e-6
+    for len in lengths
 		a0vdsat = plot!( dd[dd.L .== len, "vdsat"]
 			 	   	   , dd[dd.L .== len, "a0"]
 			 	   	   , yscale = :log10
@@ -153,7 +162,7 @@ end;
 # ╔═╡ d34046d6-360b-11eb-31cd-6378f8c1729c
 begin
 	ftgmid = plot();
-	for len in 1.5e-7 : 1.0e-7 : 1.5e-6
+    for len in lengths
 		ftgmid = plot!( dd[dd.L .== len, "gmid"]
 			 	   	  , dd[dd.L .== len, "fug"]
 			 	   	  , yscale = :log10
@@ -167,7 +176,7 @@ end;
 # ╔═╡ d46c5e3c-360b-11eb-3ab7-9dc5eeb107d6
 begin
 	ftvdsat = plot();
-	for len in 1.5e-7 : 1.0e-7 : 1.5e-6
+    for len in lengths
 		ftvdsat = plot!( dd[dd.L .== len, "vdsat"]
 			 	   	   , dd[dd.L .== len, "fug"]
 			 	   	   , yscale = :log10
@@ -327,73 +336,6 @@ begin
 	u2XT = StatsBase.transform(ut2X, cxXT);
 end
 
-# ╔═╡ 2bcd6d58-6175-11eb-30a7-d5ff25ba6786
-bc′(-2)
-
-# ╔═╡ fda2ce9e-5c82-11eb-2505-c7311cf10ed0
-begin
-	rawId = simData.id;
-	urtId = StatsBase.fit(UnitRangeTransform, rawId);
-	urId = StatsBase.transform(urtId, rawId); # .+ 1;
-	λ = 0.2; #BoxCoxTrans.lambda(weiSampled.id).value;
-	brId = abs.(bc(rawId; λ = λ));
-	bId = (bc(urId; λ = λ));
-	#bId = abs.(bc(weiSampled.id; λ = λ)); 
-	#bId′ = bc′(bId, λ = λ);
-end;
-
-# ╔═╡ e56185f4-5a3d-11eb-1337-57b0f110e054
-plot( histogram(rawId; title = "id", yaxis = "Raw")
-	, histogram(urId; yaxis = "Unit")
-	, histogram(brId; yaxis = "Raw Cox")
-	, histogram(bId; yaxis = "Unit Cox")
-	; layout = (4,1)
-	, legend = false )
-
-# ╔═╡ 7d31084a-5a58-11eb-3565-a96777aca557
-md"""
-#### Multiple Sub Samples
-
-Iteratively sample half the population. 
-
-Model **doesn't** learn from the resulting data set 🐣
-"""
-
-# ╔═╡ bf169d88-5cbf-11eb-3cf8-6fb960492987
-begin
-	allSamples = size(simData)[1];
-	minSamples = 666666;
-	numSamples = @>> Lazy.range() map(x -> (allSamples / (2^x)));
-	numSmpl = Int.(ceil.(takewhile((x) -> x > minSamples, numSamples)));
-	typSmpl = String.(take(length(numSmpl), Lazy.cycle(["id", "gm"])));
-	
-	subSampled = reduce( (dat, smp) -> dat[ StatsBase.sample( MersenneTwister(666)
-                              			   					, 1:(dat |> size |> first)
-					   					   					, pweights(dat[:,smp[2]])
-															, smp[1]
-                              			   					; replace = false )
-										  , : ]
-		  			   , zip(numSmpl, typSmpl); init = simData );
-		
-	weiSampled = simData[ StatsBase.sample( MersenneTwister(666)
-                              			  , 1:(simData |> size |> first)
-										  , pweights(simData.id)
-                             			  , Lazy.last(numSmpl)
-                            			  ; replace = false )
-						, : ];
-	
-	regSampled = simData[ StatsBase.sample( MersenneTwister(666)
-                              			  , 1:(simData |> size |> first)
-                              			  , Lazy.last(numSmpl)
-                              			  ; replace = false ) 
-					    , : ];
-end;
-
-# ╔═╡ 9e85199c-5c00-11eb-1e91-97a23967fd7d
-md"""
-### Design Data
-"""
-
 # ╔═╡ 297b36fc-616b-11eb-37d9-2d761bb2e287
 begin
 	simData.gmid = simData.gm ./ simData.id;
@@ -402,102 +344,61 @@ begin
 	
 	maskMatrix = Matrix(isinf.(simData) .| isnan.(simData));
 	mask = (vec ∘ collect)(sum(maskMatrix, dims = 2) .== 0 );
-	ddf = simData[mask, :];
+	dataFrame = simData[mask, :];
 end;
-
-# ╔═╡ 206c8374-618c-11eb-2a44-e9db582f0e97
-(size ∘ first)(ddf)
 
 # ╔═╡ 2e70e0e8-616c-11eb-0bbb-832248e5ba56
 begin
-	#nsd = size(ddf)[1];
-	#msd = 500000;
-	#ns = @>> Lazy.range() map(x -> (nsd / (2^x)));
-	#nSamp = Int.(ceil.(takewhile((x) -> x > msd, ns)));
-	#tSamp = String.(take(length(nSamp), Lazy.cycle(["id", "gm"])));
-	
-	#dSamp = reduce( (dat, smp) -> dat[ StatsBase.sample( MersenneTwister(666)
-    #                          			   			   , 1:(dat |> size |> first)
-	#				   					   			   , pweights(dat[:,smp[2]])
-	#												   , smp[1]
-    #                         			   			   ; replace = false )
-	#								 , : ]
-	#	  		  , zip(numSmpl, typSmpl); init = ddf );
-	
-	dSamp = ddf[ StatsBase.sample( MersenneTwister(666)
-			   					 , 1:(ddf |> size |> first) |> collect
-								 , StatsBase.pweights(ddf[:, "gm"])
-								 , 666666
-								 ; replace = false
-								 , ordered = false )
-			   , : ];
+    #nsd = size(ddf)[1];
+    #msd = 500000;
+    #ns = @>> Lazy.range() map(x -> (nsd / (2^x)));
+    #nSamp = Int.(ceil.(takewhile((x) -> x > msd, ns)));
+    #tSamp = String.(take(length(nSamp), Lazy.cycle(["id", "gm"])));
+    
+    #dSamp = reduce( (dat, smp) -> dat[ StatsBase.sample( MersenneTwister(666)
+    #                                                  , 1:(dat |> size |> first)
+    #                                                  , pweights(dat[:,smp[2]])
+    #                                                  , smp[1]
+    #                                                  ; replace = false )
+    #                                , : ]
+    #             , zip(numSmpl, typSmpl); init = ddf );
+    
+    #asdf = dataFrame[ StatsBase.sample( MersenneTwister(666)
+    #                                   , 1:size(dataFrame, 1)
+    #                                   , pweights(dataFrame.id)
+    #                                   , 2000000
+    #                                   ; replace = false
+    #                                   , ordered = false )
+    #                 , : ];
+
+    sdf = dataFrame[dataFrame.Vds .>= (dataFrame.Vgs .- dataFrame.vth), :];
+    sSamp = sdf[ StatsBase.sample( MersenneTwister(666)
+                                 , 1:size(sdf, 1)
+                                 , pweights(sdf.id)
+                                 , 3000000
+                                 ; replace = false
+                                 , ordered = false )
+               , : ];
+
+    tdf = dataFrame[dataFrame.Vds .<= (dataFrame.Vgs .- dataFrame.vth), :];
+    tSamp = tdf[ StatsBase.sample( MersenneTwister(666)
+                                 , 1:size(tdf, 1)
+                                 #, pweights(tdf.id)
+                                 , 1000000
+                                 ; replace = false
+                                 , ordered = false )
+               , : ];
+
+    asdf = shuffleobs(vcat(sSamp, tSamp));
 end;
 
 # ╔═╡ a4ef07d2-616b-11eb-27e3-f77fb919898d
-plot( histogram(bc(dSamp.gmid); yaxis = "gm/Id")
-	, histogram(dSamp.gmid; yaxis = "gm/Id")
-	, histogram(bc(dSamp.idW); yaxis = "Id/W", xaxis = "Value") 
-	, histogram(dSamp.idW; yaxis = "Id/W", xaxis = "Value") 
+plot( histogram(bc(asdf.id); yaxis = "id", title = "Box Cox'ed")
+	, histogram(asdf.id; yaxis = "id", title = "Raw")
+	, histogram(bc(asdf.Vds); yaxis = "Vds", xaxis = "Value") 
+	, histogram(asdf.Vds; yaxis = "Vds", xaxis = "Value") 
  	; layout = (2,2)
 	, legend = false)
-
-# ╔═╡ 4073993a-6170-11eb-3c72-3b1894f7494c
-describe(simData[:,["vth", "vdsat", "id", "gm", "gmb", "gds", "fug"]])
-
-# ╔═╡ d0ab9ce4-6172-11eb-0f2f-b372d2818a8a
-describe(simData[:,[ "cgd", "cgb", "cgs", "cds", "csb", "cdb" ]])
-
-# ╔═╡ 27cd1128-5c06-11eb-2f2f-2bbe580566f7
-md"""
-### Scikit Transformers
-"""
-
-# ╔═╡ 8539fb7a-5c0e-11eb-0775-d98cd6cd5437
-id = reshape(weiSampled.id, (size(weiSampled.id)..., 1));
-
-# ╔═╡ 04a38b9a-5c07-11eb-0348-55b935cb268c
-begin
-	qtu = QuantileTransformer( output_distribution = "uniform"
-                             , random_state = 666 );
-	qIdu = qtu.fit_transform(reshape(weiSampled.id, (size(weiSampled.id)..., 1)));
-end;
-
-# ╔═╡ ce78d548-5c0b-11eb-3944-0945cac84c22
-begin
-	qtn = QuantileTransformer( output_distribution = "normal"
-                             , random_state = 666 );
-	qIdn = qtn.fit_transform(reshape(weiSampled.id, (size(weiSampled.id)..., 1)));
-end;
-
-# ╔═╡ 15b3073a-5c07-11eb-0691-27087cb22f70
-begin
-	pt = PowerTransformer(method = "box-cox");
-	pIdt = pt.fit_transform(reshape(weiSampled.id, (size(weiSampled.id)..., 1)));
-	pId = reshape(pIdt, length(pIdt))
-end;
-
-# ╔═╡ a82d6e12-5c0b-11eb-13d7-c7507911d7f9
-begin
-	histogram( [weiSampled.id pId qIdu qIdn]
-			 ; alpha = 0.5)
-end
-
-# ╔═╡ 2fa2e3a6-5c91-11eb-2a4c-619062a93698
-md"""
-### Comparing Cox
-🐍 🔫 🐔
-"""
-
-# ╔═╡ 634da1aa-5c91-11eb-0142-e95e6005b872
-begin	
-	myBCTur = StatsBase.fit(UnitRangeTransform, bId; unit = true);
-	myBCT = StatsBase.transform(myBCTur, bId);
-	pyBCTur = StatsBase.fit(UnitRangeTransform, pId; unit = true);
-	pyBCT = StatsBase.transform(pyBCTur, pId);
-end;
-
-# ╔═╡ 07a01308-5c91-11eb-1816-75a97d54eb57
-#histogram( [myBCT pyBCT]; alpha = 0.5)
 
 # ╔═╡ 5ba2fb94-5985-11eb-1710-932d14cb2c51
 md"""
@@ -567,6 +468,7 @@ end
 # ╔═╡ 0d74596a-55be-11eb-0dea-ef5d6ab219c6
 begin
 	dat = simData[ ( (simData.W  .== wC)
+                  .& (simData.Vbs .== 0.0)
 				  .& (simData.L .== lC) ) 
 		   		 , ["id", "Vgs", "Vds" ] ];
 	len = size(dat) |> first;
@@ -624,20 +526,6 @@ begin
 	plot!(ddL.gmid[2:end], ∂idW′∂gmid; label = "∂idW/∂(gm/id)", title = "∂gm/id")
 end
 
-# ╔═╡ 9345c24e-5b23-11eb-03ff-11332c241f4e
-sort!(simData, [:Vgs, :Vds, :W])
-
-# ╔═╡ b8c2b8a8-5b21-11eb-1621-db196dd4947f
-begin
-	binsVgs = unique(simData.Vgs);
-	binsVds = unique(simData.Vds);
-	binsW   = unique(simData.W);
-	binsL   = unique(simData.L);
-end;
-
-# ╔═╡ 1abf033e-5b24-11eb-245c-834f05f57066
-diff(simData.L)
-
 # ╔═╡ Cell order:
 # ╠═9f08514e-357f-11eb-2d48-a5d0177bcc4f
 # ╠═5d549288-3a0c-11eb-0ac3-595f54266cb3
@@ -650,8 +538,9 @@ diff(simData.L)
 # ╠═d091d5e2-357f-11eb-385b-252f9ee49070
 # ╠═ed7ac13e-357f-11eb-170b-31a27207af5f
 # ╟─293aad98-3587-11eb-0f56-1d8144ad7e84
-# ╠═a002f77c-3580-11eb-0ad8-e946d85c84c7
+# ╟─a002f77c-3580-11eb-0ad8-e946d85c84c7
 # ╠═092d49d4-3584-11eb-226b-bde1f2e49a22
+# ╠═a11bf6ae-6afa-11eb-0833-f5b9a6b10f70
 # ╠═24a21870-360b-11eb-1269-db94fecdb0a6
 # ╠═c6232b50-360b-11eb-18a2-39bdc25fb03b
 # ╠═cff6fad6-360b-11eb-3e9b-a7cf6a270f8f
@@ -670,27 +559,9 @@ diff(simData.L)
 # ╠═7b5eefa8-5cda-11eb-1427-e75d848c7c54
 # ╟─21b30176-598e-11eb-0322-19cbd312896d
 # ╠═2d96bb80-5a39-11eb-1e4f-1dd65b73dbd5
-# ╠═2bcd6d58-6175-11eb-30a7-d5ff25ba6786
-# ╠═fda2ce9e-5c82-11eb-2505-c7311cf10ed0
-# ╠═e56185f4-5a3d-11eb-1337-57b0f110e054
-# ╟─7d31084a-5a58-11eb-3565-a96777aca557
-# ╠═bf169d88-5cbf-11eb-3cf8-6fb960492987
-# ╟─9e85199c-5c00-11eb-1e91-97a23967fd7d
 # ╠═297b36fc-616b-11eb-37d9-2d761bb2e287
-# ╠═206c8374-618c-11eb-2a44-e9db582f0e97
 # ╠═2e70e0e8-616c-11eb-0bbb-832248e5ba56
 # ╠═a4ef07d2-616b-11eb-27e3-f77fb919898d
-# ╠═4073993a-6170-11eb-3c72-3b1894f7494c
-# ╠═d0ab9ce4-6172-11eb-0f2f-b372d2818a8a
-# ╟─27cd1128-5c06-11eb-2f2f-2bbe580566f7
-# ╠═8539fb7a-5c0e-11eb-0775-d98cd6cd5437
-# ╠═04a38b9a-5c07-11eb-0348-55b935cb268c
-# ╠═ce78d548-5c0b-11eb-3944-0945cac84c22
-# ╠═15b3073a-5c07-11eb-0691-27087cb22f70
-# ╟─a82d6e12-5c0b-11eb-13d7-c7507911d7f9
-# ╟─2fa2e3a6-5c91-11eb-2a4c-619062a93698
-# ╠═634da1aa-5c91-11eb-0142-e95e6005b872
-# ╠═07a01308-5c91-11eb-1816-75a97d54eb57
 # ╟─5ba2fb94-5985-11eb-1710-932d14cb2c51
 # ╠═19e00e34-55b8-11eb-2ecd-3398e288598a
 # ╠═fae88ea6-6157-11eb-005a-b7fe5ab2bb16
@@ -702,6 +573,3 @@ diff(simData.L)
 # ╟─c059152c-5a7b-11eb-062c-9f68eca827dc
 # ╠═faad964e-5a7b-11eb-30e5-7552e886738c
 # ╟─f9a4397e-5a80-11eb-3843-2db5c69de322
-# ╠═9345c24e-5b23-11eb-03ff-11332c241f4e
-# ╠═b8c2b8a8-5b21-11eb-1621-db196dd4947f
-# ╠═1abf033e-5b24-11eb-245c-834f05f57066

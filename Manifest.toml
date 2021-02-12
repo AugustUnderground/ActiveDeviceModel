@@ -209,6 +209,11 @@ git-tree-sha1 = "2ac27f59196a68070e132b25713f9a5bbc5fa0d2"
 uuid = "324d7699-5711-5eae-9e2f-1d82baa6b597"
 version = "0.8.3"
 
+[[Chain]]
+git-tree-sha1 = "5da333b452fd89f6e6175cfe3473be53a9944821"
+uuid = "8be319e6-bccf-4806-a6f7-6fae938471bc"
+version = "0.4.4"
+
 [[ChainRules]]
 deps = ["ChainRulesCore", "Compat", "LinearAlgebra", "Random", "Reexport", "Requires", "Statistics"]
 git-tree-sha1 = "56bbb956a573ac16b277008edb1762ef80076e78"

@@ -19,7 +19,8 @@ using Flux: @epochs
 using Logging
 using Printf: @printf
 using NumericIO
-using Lazy
+using Chain
+#using Lazy
 #using OhMyREPL
 
 ######################
@@ -29,7 +30,8 @@ using Lazy
 # File System
 timeStamp = string(Dates.now());
 dataDir = "../data/";
-deviceName = "ptmn90"; # "ptmp90";
+deviceType = :p;
+deviceName = "ptmp45"; # "ptmn90";
 modelDir = "./model/" * deviceName * "-" * timeStamp * "/";
 mosFile = dataDir * deviceName * ".jld";
 modelFile = modelDir * deviceName * ".bson";
@@ -88,8 +90,10 @@ numYZ = numY + numZ;
 #                             , ordered = false );
 #df = dataFrame[idxSamples, : ];
 
-## Sample half of Data in Saturation Region with probability weighted id
-sdf = dataFrame[dataFrame.Vds .>= (dataFrame.Vgs .- dataFrame.vth), :];
+# Sample half of Data in Saturation Region with probability weighted id
+satN = dataFrame.Vds .>= (dataFrame.Vgs .- dataFrame.vth);
+satP = dataFrame.Vds .<= (dataFrame.Vgs .+ dataFrame.vth);
+sdf = dataFrame[(deviceType == :n ? satN : satP) , :];
 sSamp = sdf[ StatsBase.sample( MersenneTwister(rngSeed)
                              , 1:size(sdf, 1)
                              , pweights(sdf.id)
@@ -99,7 +103,9 @@ sSamp = sdf[ StatsBase.sample( MersenneTwister(rngSeed)
            , : ];
 
 # Sample half of Data in Triode Region without weights
-tdf = dataFrame[dataFrame.Vds .<= (dataFrame.Vgs .- dataFrame.vth), :];
+triN = dataFrame.Vds .<= (dataFrame.Vgs .- dataFrame.vth);
+triP = dataFrame.Vds .>= (dataFrame.Vgs .+ dataFrame.vth);
+tdf = dataFrame[(deviceType == :n ? triN : triP) , :];
 tSamp = tdf[ StatsBase.sample( MersenneTwister(rngSeed)
                              , 1:size(tdf, 1)
                              #, pweights(tdf.id)
@@ -156,15 +162,15 @@ validSet = Flux.Data.DataLoader( (validX, validY)
 ######################
 
 # Neural Network
-φ = Chain( Dense(numX   , 128   , relu)
-         , Dense(128    , 256   , relu) 
-         , Dense(256    , 512   , relu) 
-         , Dense(512    , 1024  , relu) 
-         , Dense(1024   , 512   , relu) 
-         , Dense(512    , 256   , relu) 
-         , Dense(256    , 128   , relu) 
-         , Dense(128    , numYZ , relu) 
-         ) |> gpu;
+φ = Flux.Chain( Flux.Dense(numX   , 128   , Flux.relu)
+              , Flux.Dense(128    , 256   , Flux.relu) 
+              , Flux.Dense(256    , 512   , Flux.relu) 
+              , Flux.Dense(512    , 1024  , Flux.relu) 
+              , Flux.Dense(1024   , 512   , Flux.relu) 
+              , Flux.Dense(512    , 256   , Flux.relu) 
+              , Flux.Dense(256    , 128   , Flux.relu) 
+              , Flux.Dense(128    , numYZ , Flux.relu) 
+              ) |> gpu;
 
 # Optimizer Parameters
 η   = 0.001;
@@ -207,6 +213,8 @@ function trainModel()
            , formatted(meanMAE, :ENG, ndigits = 4) )
     if meanMAE < lowestMAE                          # if model has improved
         bson( modelFile                             # save the current model (cpu)
+            , name = deviceName
+            , type = deviceType
             , model = (φ |> cpu) 
             , paramsX = paramsX
             , paramsY = paramsY
@@ -229,42 +237,59 @@ errs = [];                                          # Array of training and vali
 
 @epochs numEpochs push!(errs, trainModel())         # Run Training Loop for #epochs
 
-# Reshape errors for a nice plot
-losses = hcat( map((e) -> Float64(e[1]), errs)
-             , map((e) -> Float64(e[2]), errs) );
+# Reshape errors for a plotting
+losses = @chain errs begin
+             vcat(_...)
+             Float64.()
+         end;
 
 # Plot Training Process
 plot( 1:numEpochs, losses
     ; lab = ["MSE" "MAE"]
-    , xaxis = ("# Epoch", (1, numEpochs))
-    , yaxis = ("Error", (-0.001, ceil( max(losses...), digits = 3 )))
+    , title = "$(deviceName) Training"
+    , xaxis = "# Epoch", yaxis = "Error"
     , w = 2 )
 
 ######################
 ## Evaluation
 ######################
 
+## Use current model ###
+φ = φ |> cpu;
+######################
+
 ## Load specific model ##
-#modelFile = "./model/ptmn90-2021-02-10T11:09:47.233/ptmn90.bson"
-model = BSON.load(modelFile);
-φ = model[:model];
+#modelFile = "./model/ptmp90-2021-02-12T08:49:20.636/ptmp90.bson"
+model   = BSON.load(modelFile);
+φ       = model[:model];
 paramsX = model[:paramsX];
 paramsY = model[:paramsY];
 paramsZ = model[:paramsZ];
-utX = model[:utX];
-utY = model[:utY];
-utZ = model[:utZ];
-λ = model[:lambda];
+numX    = length(paramsX);
+numY    = length(paramsY);
+numZ    = length(paramsZ);
+utX     = model[:utX];
+utY     = model[:utY];
+utZ     = model[:utZ];
+λ       = model[:lambda];
 ######################
 
-## Use current model ###
-φ = φ |> cpu;
+## Load DB in case ##
+if !@isdefined(dataFrame)
+    deviceName = model[:name];
+    dataFrame = jldopen( f -> f["database"]
+                       , "../data/" * deviceName * ".jld"
+                       , "r" );
+end
 ######################
 
 # Round DB for better Plotting
 dataFrame.Vgs = round.(dataFrame.Vgs, digits = 2);
 dataFrame.Vds = round.(dataFrame.Vds, digits = 2);
 dataFrame.Vbs = round.(dataFrame.Vbs, digits = 2);
+
+boxCox(yᵢ; λ = 0.2) = λ != 0 ? (((yᵢ.^λ) .- 1) ./ λ) : log.(yᵢ);
+coxBox(y′; λ = 0.2) = λ != 0 ? exp.(log.((λ .* y′) .+ 1) / λ) : exp.(y′);
 
 function predict(X)
     X′ = StatsBase.transform(utX, X)
@@ -273,7 +298,7 @@ function predict(X)
     Z′ = YZ′[(numY+1):end, :];
     Y = coxBox.(StatsBase.reconstruct(utY, Y′); λ = λ );
     Z = coxBox.(StatsBase.reconstruct(utZ, Z′); λ = λ );
-    return DataFrame(Float64.(hcat(Y',Z')), [paramsY ; paramsZ])
+    return DataFrame(Float64.(hcat(Y',Z')), String.([paramsY ; paramsZ]))
 end;
 
 # Arbitrary Operating Point and sizing
@@ -282,13 +307,11 @@ qvgs = vgs.^2.0;
 vds = 0.0:0.01:1.2;
 evds = exp.(vds);
 len = length(vgs);
-
 W = rand(filter(w -> w > 2.0e-6, unique(dataFrame.W)));
 L = rand(filter(l -> l < 1.0e-6, unique(dataFrame.L)));
 VG = 0.6;
 VD = 0.6;
 VB = 0.0;
-
 vbc = zeros(len);
 w = fill(W, len);
 l = fill(L, len);
@@ -304,11 +327,15 @@ rvbc = sqrt.(abs.(vbc));
 xt = [ w l vgs qvgs vdc evdc vbc rvbc ]';
 
 # Ground Truth from original Database
-idtTrue = dataFrame[ ( (dataFrame.W .== W)
-                    .& (dataFrame.L .== L)
-                    .& (dataFrame.Vbs .== VB)
-                    .& (dataFrame.Vds .== VD))
-                   , "id" ]; # |> reverse;
+idtTrue = @chain dataFrame begin
+            _[ ( (_.W .== W)
+              .& (_.L .== L)
+              .& (_.Vbs .== VB)
+              .& (_.Vds .== VD))
+             , ["id" , "Vgs"] ]
+            sort(:Vgs)
+            _[:id]
+          end;
 
 # Prediction from φ
 yt = predict(xt);
@@ -320,34 +347,29 @@ idtPred = yt.id;
 xo = [ w l vgc qvgc vds evds vbc rvbc ]';
 
 # Ground Truth from original Database
-idoTrue = dataFrame[ ( (dataFrame.W .== W)
-                    .& (dataFrame.L .== L)
-                    .& (dataFrame.Vbs .== VB)
-                    .& (dataFrame.Vgs .== VG) )
-                   , "id" ]; # |> reverse;
+idoTrue = @chain dataFrame begin
+            _[ ( (_.W .== W)
+              .& (_.L .== L)
+              .& (_.Vbs .== VB)
+              .& (_.Vgs .== VG))
+             , ["id" , "Vds"] ]
+            sort(:Vds)
+            _[:id]
+          end;
 
 # Prediction from φ 
 yo = predict(xo);
 idoPred = yo.id;
 
 ## Plot Results
+inspectdr();
 
-#plot(vgs', idtPred)
-
-# Plot Transfer Characterisitc
-tPlt = plot( collect(vgs), [idtTrue idtPred]
-           ; title = "Transfer Characterisitc"
-           , xaxis = ("V_gs [V]", (0.0, 1.2))
-           , yaxis = ("I_d [A]", (0.0, ceil( max(idtTrue...)
-                                           , digits = 4 )))
-           , label=["tru" "prd"] );
-
-# Plot Output Characterisitc
-oPlt = plot( collect(vds), [idoTrue idoPred]
-           ; title = "Output Characterisitc"
-           , xaxis=("V_ds [V]", (0.0, 1.2))
-           , yaxis=("I_d [A]", (0.0, ceil( max(idoTrue...)
-                                         , digits = 4 )))
-           , label=["tru" "prd"] );
-
-plot(tPlt, oPlt, layout = (2,1), w = 2)
+Wf = formatted(W, :ENG, ndigits = 2);
+Lf = formatted(L, :ENG, ndigits = 2);
+plot( plot( collect(vgs), [idtTrue idtPred]
+          ; title = "TFC @ Vds = $(VD) W = $(Wf), L = $(Lf)" 
+          , xaxis = "Vgs [V]", yaxis = "Id [A]" )
+    , plot( collect(vds), [ idoTrue idoPred ]
+          ; title = "OPC @ Vgs = $(VG) W = $(Wf), L = $(Lf)" 
+          , xaxis = "Vds [V]", yaxis = "Id [A]" )
+    , layout = (2,1), w = 2 )

@@ -29,12 +29,12 @@ using Chain
 
 # File System
 timeStamp = string(Dates.now());
-dataDir = "../data/";
+dataDir = "../data";
 deviceType = :p;
-deviceName = "ptmp45"; # "ptmn90";
-modelDir = "./model/" * deviceName * "-" * timeStamp * "/";
-mosFile = dataDir * deviceName * ".jld";
-modelFile = modelDir * deviceName * ".bson";
+deviceName = "ptmp45";
+modelDir = "./model/op-$(deviceName)-$(timeStamp)";
+mosFile = "$(dataDir)/$(deviceName).jld";
+modelFile = "$(modelDir)/$(deviceName).bson";
 Base.Filesystem.mkdir(modelDir);
 
 # Don't allow scalar operations on GPU
@@ -52,9 +52,7 @@ rngSeed = 666;
 ######################
 
 # Handle JLD2 dataframe
-dataFrame = jldopen(mosFile, "r") do file
-    file["database"];
-end;
+dataFrame = jldopen((f) -> f["database"], mosFile, "r");
 
 # Processing, Fitlering, Sampling and Shuffling
 dataFrame.QVgs = dataFrame.Vgs.^2.0;
@@ -63,21 +61,17 @@ dataFrame.RVbs = abs.(dataFrame.Vbs).^0.5;
 
 # Define Features and Outputs
 paramsX = ["W", "L", "Vgs", "QVgs", "Vds", "EVds", "Vbs", "RVbs"];
-paramsY = ["vth", "vdsat", "id", "gm", "gmb", "gds", "fug"];
-paramsZ = ["cgd", "cgb", "cgs", "cds", "csb", "cdb"];
+paramsY = [ "vth", "vdsat", "id", "gm", "gmb", "gds", "fug"
+          , "cgd", "cgb", "cgs", "cds", "csb", "cdb" ];
 
-#paramsY = ["vth", "vdsat", "id", "gm", "gmb", "gds", "fug"
-#          , "cgd", "cgb", "cgs", "cds", "csb", "cdb" ];
-
-#paramsXY = names(dataFrame);
-#paramsX = filter((p) -> isuppercase(first(p)), paramsXY);
-#paramsY = filter((p) -> !in(p, paramsX), paramsXY);
+# Box-Cox Transformation Mask
+maskBCX = paramsX .∈([],);
+maskBCY = paramsY .∈([ "id", "gm", "gmb", "gds", "fug"
+                     , "cgd", "cgb", "cgs", "cds", "csb", "cdb" ],);
 
 # Number of In- and Outputs, for respective NN Layers
 numX = length(paramsX);
 numY = length(paramsY);
-numZ = length(paramsZ);
-numYZ = numY + numZ;
 
 ## Sample Data for appropriate distribution
 
@@ -90,10 +84,11 @@ numYZ = numY + numZ;
 #                             , ordered = false );
 #df = dataFrame[idxSamples, : ];
 
-# Sample half of Data in Saturation Region with probability weighted id
-satN = dataFrame.Vds .>= (dataFrame.Vgs .- dataFrame.vth);
-satP = dataFrame.Vds .<= (dataFrame.Vgs .+ dataFrame.vth);
-sdf = dataFrame[(deviceType == :n ? satN : satP) , :];
+# Sample 3/4ths of Data in Saturation Region with probability weighted Id
+sdf = dataFrame[ ifelse( deviceType == :n
+                       , (dataFrame.Vds .>= (dataFrame.Vgs .- dataFrame.vth))
+                       , (dataFrame.Vds .<= (dataFrame.Vgs .+ dataFrame.vth)) ) 
+               , :];
 sSamp = sdf[ StatsBase.sample( MersenneTwister(rngSeed)
                              , 1:size(sdf, 1)
                              , pweights(sdf.id)
@@ -102,10 +97,11 @@ sSamp = sdf[ StatsBase.sample( MersenneTwister(rngSeed)
                              , ordered = false )
            , : ];
 
-# Sample half of Data in Triode Region without weights
-triN = dataFrame.Vds .<= (dataFrame.Vgs .- dataFrame.vth);
-triP = dataFrame.Vds .>= (dataFrame.Vgs .+ dataFrame.vth);
-tdf = dataFrame[(deviceType == :n ? triN : triP) , :];
+# Sample 1/3rd of Data in Triode Region without weights
+tdf = dataFrame[ ifelse( deviceType == :n
+                       , (dataFrame.Vds .<= (dataFrame.Vgs .- dataFrame.vth))
+                       , (dataFrame.Vds .>= (dataFrame.Vgs .+ dataFrame.vth)) ) 
+               , : ];
 tSamp = tdf[ StatsBase.sample( MersenneTwister(rngSeed)
                              , 1:size(tdf, 1)
                              #, pweights(tdf.id)
@@ -124,24 +120,19 @@ coxBox(y′; λ = 0.2) = λ != 0 ? exp.(log.((λ .* y′) .+ 1) / λ) : exp.(y�
 # Split into Features and Outputs
 rawX = Matrix(df[:, paramsX ])';
 rawY = Matrix(df[:, paramsY ])';
-rawZ = Matrix(df[:, paramsZ ])';
 
 # Apply Box Cox transformation to outputs (negative C's don't make sense)
 λ = 0.2;
-coxY = boxCox.(rawY; λ = λ);
-coxZ = boxCox.(abs.(rawZ); λ = λ);
+rawX[maskBCX,:] = boxCox.(abs.(rawX[maskBCX,:]); λ = λ);
+rawY[maskBCY,:] = boxCox.(abs.(rawY[maskBCY,:]); λ = λ);
 
 # Scale all observations to unit range
 utX = StatsBase.fit(UnitRangeTransform, rawX; dims = 2, unit = true); 
-utY = StatsBase.fit(UnitRangeTransform, coxY; dims = 2, unit = true); 
-utZ = StatsBase.fit(UnitRangeTransform, coxZ; dims = 2, unit = true); 
-#utY = StatsBase.fit(UnitRangeTransform, rawY; dims = 2, unit = true); 
+utY = StatsBase.fit(UnitRangeTransform, rawY; dims = 2, unit = true); 
 
 # Transform all data to be ∈  [0;1]
 dataX = StatsBase.transform(utX, rawX);
-dataY = [ StatsBase.transform(utY, coxY)
-        ; StatsBase.transform(utZ, coxZ) ];
-#dataY = StatsBase.transform(utY, rawY);
+dataY = StatsBase.transform(utY, rawY);
 
 # Split data in training and validation set
 splitRatio = 0.8;
@@ -169,7 +160,7 @@ validSet = Flux.Data.DataLoader( (validX, validY)
               , Flux.Dense(1024   , 512   , Flux.relu) 
               , Flux.Dense(512    , 256   , Flux.relu) 
               , Flux.Dense(256    , 128   , Flux.relu) 
-              , Flux.Dense(128    , numYZ , Flux.relu) 
+              , Flux.Dense(128    , numY  , Flux.relu) 
               ) |> gpu;
 
 # Optimizer Parameters
@@ -218,10 +209,10 @@ function trainModel()
             , model = (φ |> cpu) 
             , paramsX = paramsX
             , paramsY = paramsY
-            , paramsZ = paramsZ
             , utX = utX
             , utY = utY 
-            , utZ = utZ 
+            , maskX = maskBCX
+            , maskY = maskBCY
             , lambda = λ );
         global lowestMAE = meanMAE;                 # update previous lowest MAE
         @printf( "\tNew Model Saved with MAE: %s\n" 
@@ -237,6 +228,10 @@ errs = [];                                          # Array of training and vali
 
 @epochs numEpochs push!(errs, trainModel())         # Run Training Loop for #epochs
 
+######################
+## Evaluation
+######################
+
 # Reshape errors for a plotting
 losses = @chain errs begin
              vcat(_...)
@@ -250,10 +245,6 @@ plot( 1:numEpochs, losses
     , xaxis = "# Epoch", yaxis = "Error"
     , w = 2 )
 
-######################
-## Evaluation
-######################
-
 ## Use current model ###
 φ = φ |> cpu;
 ######################
@@ -264,14 +255,16 @@ model   = BSON.load(modelFile);
 φ       = model[:model];
 paramsX = model[:paramsX];
 paramsY = model[:paramsY];
-paramsZ = model[:paramsZ];
 numX    = length(paramsX);
 numY    = length(paramsY);
-numZ    = length(paramsZ);
 utX     = model[:utX];
 utY     = model[:utY];
-utZ     = model[:utZ];
+maskBCX = model[:maskX];
+maskBCY = model[:maskY];
 λ       = model[:lambda];
+devName = model[:name];
+devType = model[:type];
+
 ######################
 
 ## Load DB in case ##
@@ -281,6 +274,11 @@ if !@isdefined(dataFrame)
                        , "../data/" * deviceName * ".jld"
                        , "r" );
 end
+
+boxCox(yᵢ; λ = 0.2) = λ != 0 ? (((yᵢ.^λ) .- 1) ./ λ) : log.(yᵢ);
+coxBox(y′; λ = 0.2) = λ != 0 ? exp.(log.((λ .* y′) .+ 1) / λ) : exp.(y′);
+
+inspectdr();
 ######################
 
 # Round DB for better Plotting
@@ -288,17 +286,13 @@ dataFrame.Vgs = round.(dataFrame.Vgs, digits = 2);
 dataFrame.Vds = round.(dataFrame.Vds, digits = 2);
 dataFrame.Vbs = round.(dataFrame.Vbs, digits = 2);
 
-boxCox(yᵢ; λ = 0.2) = λ != 0 ? (((yᵢ.^λ) .- 1) ./ λ) : log.(yᵢ);
-coxBox(y′; λ = 0.2) = λ != 0 ? exp.(log.((λ .* y′) .+ 1) / λ) : exp.(y′);
-
 function predict(X)
-    X′ = StatsBase.transform(utX, X)
-    YZ′ = φ(X′)
-    Y′ = YZ′[1:numY, :];
-    Z′ = YZ′[(numY+1):end, :];
-    Y = coxBox.(StatsBase.reconstruct(utY, Y′); λ = λ );
-    Z = coxBox.(StatsBase.reconstruct(utZ, Z′); λ = λ );
-    return DataFrame(Float64.(hcat(Y',Z')), String.([paramsY ; paramsZ]))
+    X[maskBCX,:] = boxCox.(abs.(X[maskBCX,:]); λ = λ);
+    X′ = StatsBase.transform(utX, X);
+    Y′ = φ(X′);
+    Y = StatsBase.reconstruct(utY, Y′);
+    Y[maskBCY,:] = coxBox.(Y[maskBCY,:]; λ = λ);
+    return DataFrame(Float64.(Y'), String.(paramsY))
 end;
 
 # Arbitrary Operating Point and sizing
@@ -362,14 +356,15 @@ yo = predict(xo);
 idoPred = yo.id;
 
 ## Plot Results
-inspectdr();
-
 Wf = formatted(W, :ENG, ndigits = 2);
 Lf = formatted(L, :ENG, ndigits = 2);
 plot( plot( collect(vgs), [idtTrue idtPred]
           ; title = "TFC @ Vds = $(VD) W = $(Wf), L = $(Lf)" 
-          , xaxis = "Vgs [V]", yaxis = "Id [A]" )
+          , xaxis = "Vgs [V]", yaxis = "Id [A]" 
+          , lab = ["Truth" "Pred" ]
+          , yscale = :log10 )
     , plot( collect(vds), [ idoTrue idoPred ]
           ; title = "OPC @ Vgs = $(VG) W = $(Wf), L = $(Lf)" 
+          , lab = ["Truth" "Pred" ]
           , xaxis = "Vds [V]", yaxis = "Id [A]" )
     , layout = (2,1), w = 2 )

@@ -87,6 +87,18 @@ xt = [ vgs vdc  w l ]
 
 
 
+ncm = jldopen("../data/cm-nxh035.jld", "r") do file
+    file["database"];
+end;
+
+ncm.M0_vds = round.(ncm.M0_vds; digits = 3);
+ncm.O = round.(ncm.O; digits = 3);
+
+res = ncm[ ( (ncm.Mcm11 .== ncm.Mcm12)
+          .& (ncm.M0_vds .== ncm.O) )
+         , ["Mcm11", "Mcm12", "M0_vds", "O", "M0_id", "M1_id"] ];
+
+
 
 
 
@@ -188,3 +200,108 @@ ncmPath = "../data/cm-nxh035.jld";
 
 dataFrame = jldopen((f) -> f["database"], ncmPath, "r");
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+####################################################
+# DESIGN MODEL EVALUATION
+####################################################
+
+modelFile = "./model/ptmn90-vdsat_Vds-2021-02-15T18:35:59.555/ptmn90.bson"
+model   = BSON.load(modelFile);
+γ       = model[:model];
+paramsX = model[:paramsX];
+paramsY = model[:paramsY];
+utX     = model[:utX];
+utY     = model[:utY];
+maskBCX = model[:maskX];
+maskBCY = model[:maskY];
+λ       = model[:lambda];
+param   = model[:parameter];
+term    = model[:terminal];
+device  = model[:name];
+
+## Reload DB ##########
+inspectdr();
+dataFrame = jldopen("../data/$(device).jld", "r") do file
+    file["database"];
+end;
+dataFrame.QVgs = dataFrame.Vgs.^2.0;
+dataFrame.EVds = exp.(dataFrame.Vds);
+dataFrame.RVbs = sqrt.(abs.(dataFrame.Vbs));
+dataFrame.gmid = dataFrame.gm ./ dataFrame.id;
+dataFrame.A0 = dataFrame.gm ./ dataFrame.gds;
+dataFrame.Jd = dataFrame.id ./ dataFrame.W;
+msk = @chain dataFrame begin
+            (isinf.(_) .| isnan.(_))
+            Matrix(_)
+            sum(_ ; dims = 2)
+            (_ .== 0)
+            vec()
+            collect()
+      end;
+mdf = dataFrame[msk, : ];
+
+boxCox(yᵢ; λ = 0.2) = λ != 0 ? (((yᵢ.^λ) .- 1) ./ λ) : log.(yᵢ);
+coxBox(y′; λ = 0.2) = λ != 0 ? exp.(log.((λ .* y′) .+ 1) / λ) : exp.(y′);
+########################
+
+mdf.Vgs = round.(mdf.Vgs, digits = 2);
+mdf.Vds = round.(mdf.Vds, digits = 2);
+mdf.Vbs = round.(mdf.Vbs, digits = 2);
+
+### γ evaluation function for prediction characteristics
+
+function predict(X)
+    X[maskBCX,:] = boxCox.(abs.(X[maskBCX,:]); λ = λ);
+    X′ = StatsBase.transform(utX, X);
+    Y′ = γ(X′);
+    Y = StatsBase.reconstruct(utY, Y′);
+    Y[maskBCY,:] = coxBox.(Y[maskBCY,:]; λ = λ);
+    return DataFrame(Float64.(Y'), String.(paramsY))
+end;
+
+L = 300e-9;
+W = 2.0e-6
+Id = 50e-6;
+vdsat = 0.2;
+Vbs = 0.0;
+Vgs = 0.6
+
+function loss(Vds, vdsat)
+    x = [ L Id vdsat Vds (ℯ ^ Vds) Vbs (Vbs ^ 0.5) ]';
+    y = predict(x);
+    ΔVg = abs(y.Vgs[1] - Vgs);
+    ΔW  = abs((y.W[1] * 10^6) - (W * 10^6));
+    ΔJ  = abs(y.Jd[1] - (Id / W))
+    print("ΔVgs = $(lossVg) ; ΔW = $(lossW)\n")
+    return (lossVg + lossW)
+end;
+
+opt = optimize((x) -> loss(x[1], 0.2), [0.6], Newton())
+opt = optimize(f, lower, upper, initial_x, Fminbox(inner_optimizer); autodiff = :forward)
+Vds = opt.minimizer[1]
+
+x = [ L Id vdsat Vds (Vds ^ 2.0) Vbs (Vbs ^ 0.5) ]';
+y = predict(x)
+
+
+
+
+f(x) = (1.0 - x[1])^2 + 100.0 * (x[2] - x[1]^2)^2
+
+lower = [1.25, -2.1]
+upper = [Inf, Inf]
+initial_x = [2.0, 2.0]
+inner_optimizer = GradientDescent()
+results = optimize(f, lower, upper, initial_x, Fminbox(inner_optimizer); autodiff = :forward)

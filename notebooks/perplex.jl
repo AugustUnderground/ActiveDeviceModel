@@ -221,37 +221,6 @@ begin
 	rawY = Matrix(simData[:, paramsY ])';
 end;
 
-# ╔═╡ bc3a4716-5cd0-11eb-1939-91291bfdf530
-simSample = simData[ StatsBase.sample( MersenneTwister(666)
-                              		 , 1:(simData |> size |> first)
-									 , pweights(simData.id)
-                             		 , 666666
-                            		 ; replace = false )
-					, : ];
-
-# ╔═╡ 49d1543a-5cd7-11eb-0cb9-85934736d352
-begin
-	bc_vgs = collect(0.0:0.01:1.2)';
-	bc_qvgs = bc_vgs.^2.0;
-	bc_vds = collect(0.0:0.01:1.2)';
-	bc_evds = exp.(bc_vds);
-	bc_len = length(bc_vgs);
-	bc_W = 1.0e-6;
-	bc_w = ones(1, bc_len) .* bc_W;
-	bc_L = 3.0e-7;
-	bc_l = ones(1, bc_len) .* bc_L;
-	bc_vg = 0.6;
-	bc_vgc = ones(1, bc_len) .* bc_vg;
-	bc_qvgc = bc_vgc.^2.0;
-	bc_vd = 0.6;
-	bc_vdc = ones(1, bc_len) .* bc_vd;
-	bc_evdc = exp.(bc_vdc);
-	bc_vbc = zeros(1, bc_len);
-	
-	bc_xt = [ bc_vgs; bc_qvgs; bc_vdc; bc_evdc; bc_w; bc_l ];
-	bc_xo = [ bc_vgc; bc_qvgc; bc_vds; bc_evds; bc_w; bc_l ];
-end;
-
 # ╔═╡ 21b30176-598e-11eb-0322-19cbd312896d
 md"""
 ### Data Transformations
@@ -287,8 +256,25 @@ begin
 	ut2Y = StatsBase.fit(UnitRangeTransform, coxY; dims = 2, unit = true);
 end;
 
+# ╔═╡ bc3a4716-5cd0-11eb-1939-91291bfdf530
+begin
+    simSample = simData[ StatsBase.sample( MersenneTwister(666)
+                                         , 1:(simData |> size |> first)
+                                         , pweights(simData.id)
+                                         , 666666
+                                         ; replace = false )
+                       , : ];
+    rawSample = simData[ StatsBase.sample( MersenneTwister(666)
+                                         , 1:(simData |> size |> first)
+                                         , 666666
+                                         ; replace = false )
+                       , : ];
+end;
+
 # ╔═╡ bceea132-5cd7-11eb-14ef-e70cad73f65f
 begin
+	rs1Y = StatsBase.transform(ut1Y, Matrix(rawSample[:,paramsY])');
+
 	us1X = StatsBase.transform(ut1X, Matrix(simSample[:,paramsX])');
 	us1Y = StatsBase.transform(ut1Y, Matrix(simSample[:,paramsY])');
 	
@@ -298,43 +284,50 @@ begin
 	us2X = StatsBase.transform(ut2X, usCX);
 	us2Y = StatsBase.transform(ut2Y, usCY);
 	
-	usYX = YeoJohnsonTrans.transform(us1X);
-	usYY = YeoJohnsonTrans.transform(us1Y);
+	#usYX = YeoJohnsonTrans.transform(us1X);
+	#usYY = YeoJohnsonTrans.transform(us1Y);
 	
-	us3X = StatsBase.standardize(UnitRangeTransform, usYX);
-	us3Y = StatsBase.standardize(UnitRangeTransform, usYY);
+	#us3X = StatsBase.standardize(UnitRangeTransform, usYX);
+	#us3Y = StatsBase.standardize(UnitRangeTransform, usYY);
+
+    usQX = QuantileTransformer( output_distribution = "uniform"
+                              , random_state = 666 );
+    usQY = QuantileTransformer( output_distribution = "uniform"
+                              , random_state = 666 );
+
+    us3X = us1X |> adjoint |> usQX.fit_transform |> adjoint;
+    us3Y = us1Y |> adjoint |> usQY.fit_transform |> adjoint;
 end;
 
 # ╔═╡ 78813f7a-5cd8-11eb-2bea-278bd4f36ec0
-plot( histogram( us1Y[1,:], legend = false, title = "raw", yaxis = "vth")
-	, histogram( us2Y[1,:], legend = false, title = "bct")
-	, histogram( us3Y[1,:], legend = false, title = "yjt")
-	, histogram( us1Y[2,:], legend = false, yaxis = "vdsat")
-	, histogram( us2Y[2,:], legend = false)
-	, histogram( us3Y[2,:], legend = false)
-	, histogram( us1Y[3,:], legend = false, yaxis = "id")
-	, histogram( usCY[3,:], legend = false)
-	, histogram( us3Y[3,:], legend = false)
-	, histogram( us1Y[4,:], legend = false, yaxis = "gm")
-	, histogram( us2Y[4,:], legend = false)
-	, histogram( us3Y[4,:], legend = false)
-	, histogram( us1Y[5,:], legend = false, yaxis = "gmb")
-	, histogram( us2Y[5,:], legend = false)
-	, histogram( us3Y[5,:], legend = false)
-	, histogram( us1Y[6,:], legend = false, yaxis = "gds")
-	, histogram( us2Y[6,:], legend = false)
-	, histogram( us3Y[6,:], legend = false)
-	, histogram( us1Y[7,:], legend = false, yaxis = "fug")
-	, histogram( us2Y[7,:], legend = false)
-	, histogram( us3Y[7,:], legend = false)
-	, layout = (7,3) )
-
-# ╔═╡ 7b5eefa8-5cda-11eb-1427-e75d848c7c54
-begin
-	u1XT = StatsBase.transform(ut1X, bc_xt);
-	cxXT = hcat([ bc(rX; λ = 0.2) for rX in eachrow(u1XT)]...)';
-	u2XT = StatsBase.transform(ut2X, cxXT);
-end
+plot( histogram( rs1Y[3,:], legend = false, yaxis = "raw"
+               , title = "Drain Current Distribution" )
+    , histogram( us3Y[3,:], legend = false, yaxis = "qt" ) 
+    , histogram( us1Y[3,:], legend = false, yaxis = "weighted" )
+	, histogram( us2Y[3,:], legend = false, yaxis = "bct" )
+    ; layout = (4,1) )
+#plot( histogram( us1Y[1,:], legend = false, title = "raw", yaxis = "vth")
+#	, histogram( us2Y[1,:], legend = false, title = "bct")
+#	, histogram( us3Y[1,:], legend = false, title = "yjt")
+#	, histogram( us1Y[2,:], legend = false, yaxis = "vdsat")
+#	, histogram( us2Y[2,:], legend = false)
+#	, histogram( us3Y[2,:], legend = false)
+#	, histogram( us1Y[3,:], legend = false, yaxis = "id")
+#	, histogram( usCY[3,:], legend = false)
+#	, histogram( us3Y[3,:], legend = false)
+#	, histogram( us1Y[4,:], legend = false, yaxis = "gm")
+#	, histogram( us2Y[4,:], legend = false)
+#	, histogram( us3Y[4,:], legend = false)
+#	, histogram( us1Y[5,:], legend = false, yaxis = "gmb")
+#	, histogram( us2Y[5,:], legend = false)
+#	, histogram( us3Y[5,:], legend = false)
+#	, histogram( us1Y[6,:], legend = false, yaxis = "gds")
+#	, histogram( us2Y[6,:], legend = false)
+#	, histogram( us3Y[6,:], legend = false)
+#	, histogram( us1Y[7,:], legend = false, yaxis = "fug")
+#	, histogram( us2Y[7,:], legend = false)
+#	, histogram( us3Y[7,:], legend = false)
+#	, layout = (7,3) )
 
 # ╔═╡ 297b36fc-616b-11eb-37d9-2d761bb2e287
 begin
@@ -347,59 +340,6 @@ begin
 	dataFrame = simData[mask, :];
 end;
 
-# ╔═╡ 2e70e0e8-616c-11eb-0bbb-832248e5ba56
-begin
-    #nsd = size(ddf)[1];
-    #msd = 500000;
-    #ns = @>> Lazy.range() map(x -> (nsd / (2^x)));
-    #nSamp = Int.(ceil.(takewhile((x) -> x > msd, ns)));
-    #tSamp = String.(take(length(nSamp), Lazy.cycle(["id", "gm"])));
-    
-    #dSamp = reduce( (dat, smp) -> dat[ StatsBase.sample( MersenneTwister(666)
-    #                                                  , 1:(dat |> size |> first)
-    #                                                  , pweights(dat[:,smp[2]])
-    #                                                  , smp[1]
-    #                                                  ; replace = false )
-    #                                , : ]
-    #             , zip(numSmpl, typSmpl); init = ddf );
-    
-    #asdf = dataFrame[ StatsBase.sample( MersenneTwister(666)
-    #                                   , 1:size(dataFrame, 1)
-    #                                   , pweights(dataFrame.id)
-    #                                   , 2000000
-    #                                   ; replace = false
-    #                                   , ordered = false )
-    #                 , : ];
-
-    sdf = dataFrame[dataFrame.Vds .>= (dataFrame.Vgs .- dataFrame.vth), :];
-    sSamp = sdf[ StatsBase.sample( MersenneTwister(666)
-                                 , 1:size(sdf, 1)
-                                 , pweights(sdf.id)
-                                 , 3000000
-                                 ; replace = false
-                                 , ordered = false )
-               , : ];
-
-    tdf = dataFrame[dataFrame.Vds .<= (dataFrame.Vgs .- dataFrame.vth), :];
-    tSamp = tdf[ StatsBase.sample( MersenneTwister(666)
-                                 , 1:size(tdf, 1)
-                                 #, pweights(tdf.id)
-                                 , 1000000
-                                 ; replace = false
-                                 , ordered = false )
-               , : ];
-
-    asdf = shuffleobs(vcat(sSamp, tSamp));
-end;
-
-# ╔═╡ a4ef07d2-616b-11eb-27e3-f77fb919898d
-plot( histogram(bc(asdf.id); yaxis = "id", title = "Box Cox'ed")
-	, histogram(asdf.id; yaxis = "id", title = "Raw")
-	, histogram(bc(asdf.Vds); yaxis = "Vds", xaxis = "Value") 
-	, histogram(asdf.Vds; yaxis = "Vds", xaxis = "Value") 
- 	; layout = (2,2)
-	, legend = false)
-
 # ╔═╡ 5ba2fb94-5985-11eb-1710-932d14cb2c51
 md"""
 # Comparison
@@ -407,99 +347,86 @@ md"""
 
 # ╔═╡ 19e00e34-55b8-11eb-2ecd-3398e288598a
 begin	
-	modelPathₙ = "../model/ptmn90-2021-01-28T13:08:19.923/ptmn90";
-	modelFileₙ = modelPathₙ * ".bson";
-	modelₙ = BSON.load(modelFileₙ);
-	φₙ = modelₙ[:model];
-	paramsXₙ = modelₙ[:paramsX];
-	paramsYₙ = modelₙ[:paramsY];
-	utXₙ = modelₙ[:utX];
-	utYₙ = modelₙ[:utY];
-	
-	function predictₙ(X)
-		X′ = StatsBase.transform(utXₙ, X);
-		Y′ = φₙ(X′);
-		Y = StatsBase.reconstruct(utYₙ, Y′);
-  		return Float64.(Y)
-	end;
-end;
+    ptmn90modelFile = "../model/op-ptmn90-2021-02-19T09:03:05.608/ptmn90.bson"
+    ptmn90model     = BSON.load(ptmn90modelFile);
+    ptmn90          = ptmn90model[:model];
+    ptmn90paramsX   = ptmn90model[:paramsX];
+    ptmn90paramsY   = ptmn90model[:paramsY];
+    ptmn90numX      = length(ptmn90paramsX);
+    ptmn90numY      = length(ptmn90paramsY);
+    ptmn90utX       = ptmn90model[:utX];
+    ptmn90utY       = ptmn90model[:utY];
+    ptmn90maskBCX   = ptmn90model[:maskX];
+    ptmn90maskBCY   = ptmn90model[:maskY];
+    ptmn90λ         = ptmn90model[:lambda];
+    ptmn90devName   = ptmn90model[:name];
+    ptmn90devType   = ptmn90model[:type];
 
-# ╔═╡ fae88ea6-6157-11eb-005a-b7fe5ab2bb16
-begin	
-	modelPathₚ = "../model/ptmp90-2021-01-28T11:53:55.782/ptmp90";
-	modelFileₚ = modelPathₚ * ".bson";
-	modelₚ = BSON.load(modelFileₚ);
-	φₚ = modelₚ[:model];
-	paramsXₚ = modelₚ[:paramsX];
-	paramsYₚ = modelₚ[:paramsY];
-	utXₚ = modelₚ[:utX];
-	utYₚ = modelₚ[:utY];
-	
-	function predictₚ(X)
-		X′ = StatsBase.transform(utXₚ, X);
-		Y′ = φₚ(X′);
-		Y = StatsBase.reconstruct(utYₚ, Y′);
-  		return Float64.(Y)
-	end;
+    function ptmn90predict(X)
+        X[ptmn90maskBCX,:] = bc.(abs.(X[ptmn90maskBCX,:]); λ = ptmn90λ);
+        X′ = StatsBase.transform(ptmn90utX, X);
+        Y′ = ptmn90(X′);
+        Y = StatsBase.reconstruct(ptmn90utY, Y′);
+        Y[ptmn90maskBCY,:] = bc′.(Y[ptmn90maskBCY,:]; λ = ptmn90λ);
+        return DataFrame(Float64.(Y'), String.(ptmn90paramsY))
+    end;
 end;
-
-# ╔═╡ 917a3ff2-55bb-11eb-36f3-fb1d62827973
-begin
-	vgsC = collect(0.0:0.01:1.2)';
-	qvgsC = vgsC.^2.0;
-	vdsC = collect(0.0:0.01:1.2)';
-	evdsC = exp.(vdsC);
-end;
-
-# ╔═╡ 9e3dee36-55bc-11eb-355f-2f28faf37480
-begin
-	slWC = @bind wC Slider( 1.0e-6 : 2.5e-7 : 4.75e-6
-						, default = 1.0e-6, show_value = true );
-	slLC = @bind lC Slider( 3.0e-7 : 1.5e-7 : 3e-6
-						, default = 3.0e-7, show_value = true );
-	
-	md"""
-	W = $(slWC)
-	
-	L = $(slLC)
-	"""
-end
 
 # ╔═╡ 0d74596a-55be-11eb-0dea-ef5d6ab219c6
 begin
-	dat = simData[ ( (simData.W  .== wC)
-                  .& (simData.Vbs .== 0.0)
-				  .& (simData.L .== lC) ) 
-		   		 , ["id", "Vgs", "Vds" ] ];
-	len = size(dat) |> first;
-	
-	sweepₙ = [ dat.Vgs'
-			 ; dat.Vgs' .^ 2.0
-			 ; dat.Vds'
-			 ; exp.(dat.Vds)'
-			 ; fill(wC, 1, len) 
-			 ; fill(lC, 1, len) ];
-	
-	yₙ = predictₙ(sweepₙ);
-	yₚ = predictₚ(sweepₙ);
-	
-	idₚₙ = reshape( yₙ[first(indexin(["id"], paramsYₙ)), :]
-				 , (Int(sqrt(len)), Int(sqrt(len))));
-	idₜₙ = reshape( dat.id
-				 , (Int(sqrt(len)), Int(sqrt(len))));	
-	
-	idₚₚ = reshape( yₚ[first(indexin(["id"], paramsYₚ)), :]
-				 , (Int(sqrt(len)), Int(sqrt(len))));
+    W = rand(filter(w -> w > 2.0e-6, unique(dataFrame.W)));
+    L = rand(filter(l -> l < 1.0e-6, unique(dataFrame.L)));
+    VB = 0.0;
+
+    dat = simData[ ( (simData.W  .== W)
+                  .& (simData.Vbs .== VB)
+                  .& (simData.L .== L) ) 
+                 , ["id", "Vgs", "Vds" ] ];
+    len = size(dat) |> first;
+    
+    vgs = dat.Vgs;
+    qvgs = vgs.^2.0;
+    VDS = dat.Vds;
+    evds = exp.(VDS);
+    len = length(vgs);
+    vbc = fill(VB, len);
+    rvbc = sqrt.(abs.(vbc));
+    wc = fill(W, len);
+    lc = fill(L, len);
+
+    sweep = [ wc lc vgs  qvgs VDS evds vbc rvbc ]';
+
+    ptmn90y = ptmn90predict(sweep);
+    
+    idₚₙ = reshape(ptmn90y.id, (Int(sqrt(len)), Int(sqrt(len))));
+    idₜₙ = reshape(dat.id, (Int(sqrt(len)), Int(sqrt(len))));   
 end;
 
 # ╔═╡ 57ff103c-55bf-11eb-294a-d5ce2b0557c8
 begin
 	surface(unique(dat.Vgs), unique(dat.Vds), idₜₙ; c = :blues, legend = false);
-	surface!(unique(dat.Vgs), unique(dat.Vds), idₚₙ; c = :reds, legend = false)
+	surface!( unique(dat.Vgs), unique(dat.Vds), idₚₙ
+            ; c = :heat, legend = false
+            , xaxis = "Vgs [V]", yaxis = "Vds [V]", zaxis = "Id [A]"
+            , title = "PTM 90nm" )
 end
 
-# ╔═╡ 64509de8-6158-11eb-399c-c5671efffd88
-#surface(unique(dat.Vgs), unique(dat.Vds), idₚₚ; c = :reds, legend = false)
+# ╔═╡ 9e3dee36-55bc-11eb-355f-2f28faf37480
+begin
+    slWC = @bind wC Slider( 1.0e-6 : 2.5e-7 : 4.75e-6
+                        , default = 1.0e-6, show_value = true );
+    slLC = @bind lC Slider( 3.0e-7 : 1.5e-7 : 3e-6
+                        , default = 3.0e-7, show_value = true );
+    slVBC = @bind vbC Slider( 0.0 : -0.1 : -1.0
+                        , default = 0.0, show_value = true );
+    
+#     md"""
+# W = $(slWC)
+# L = $(slLC)
+# 
+# Vbs = $(slVBC)
+#     """
+end;
 
 # ╔═╡ c059152c-5a7b-11eb-062c-9f68eca827dc
 md"""
@@ -551,25 +478,18 @@ end
 # ╠═6b97b4f0-3580-11eb-28e5-b356737b0905
 # ╟─799725d6-4034-11eb-2f62-91ef4cc5693c
 # ╠═eb065c46-5cc7-11eb-3fce-d1a566c34e82
+# ╟─21b30176-598e-11eb-0322-19cbd312896d
+# ╠═2d96bb80-5a39-11eb-1e4f-1dd65b73dbd5
 # ╠═3f07f502-5cc8-11eb-33ac-83920c977746
 # ╠═bc3a4716-5cd0-11eb-1939-91291bfdf530
 # ╠═bceea132-5cd7-11eb-14ef-e70cad73f65f
-# ╠═78813f7a-5cd8-11eb-2bea-278bd4f36ec0
-# ╠═49d1543a-5cd7-11eb-0cb9-85934736d352
-# ╠═7b5eefa8-5cda-11eb-1427-e75d848c7c54
-# ╟─21b30176-598e-11eb-0322-19cbd312896d
-# ╠═2d96bb80-5a39-11eb-1e4f-1dd65b73dbd5
+# ╟─78813f7a-5cd8-11eb-2bea-278bd4f36ec0
 # ╠═297b36fc-616b-11eb-37d9-2d761bb2e287
-# ╠═2e70e0e8-616c-11eb-0bbb-832248e5ba56
-# ╠═a4ef07d2-616b-11eb-27e3-f77fb919898d
 # ╟─5ba2fb94-5985-11eb-1710-932d14cb2c51
 # ╠═19e00e34-55b8-11eb-2ecd-3398e288598a
-# ╠═fae88ea6-6157-11eb-005a-b7fe5ab2bb16
-# ╠═917a3ff2-55bb-11eb-36f3-fb1d62827973
 # ╠═0d74596a-55be-11eb-0dea-ef5d6ab219c6
 # ╠═57ff103c-55bf-11eb-294a-d5ce2b0557c8
-# ╟─9e3dee36-55bc-11eb-355f-2f28faf37480
-# ╠═64509de8-6158-11eb-399c-c5671efffd88
+# ╠═9e3dee36-55bc-11eb-355f-2f28faf37480
 # ╟─c059152c-5a7b-11eb-062c-9f68eca827dc
 # ╠═faad964e-5a7b-11eb-30e5-7552e886738c
 # ╟─f9a4397e-5a80-11eb-3843-2db5c69de322

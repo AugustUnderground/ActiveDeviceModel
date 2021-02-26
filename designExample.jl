@@ -1,6 +1,11 @@
 using FiniteDifferences
+
 using mna
 using BSON
+using DataFrames
+using StatsBase
+using Plots
+using Flux
 
 ## Setup
 
@@ -21,8 +26,8 @@ struct MOSFET
 end;
 
 # Load Trained Transistor Models
-nmos90file = BSON.load("../model/ptmn90-2021-02-12T17:35:43.636/ptmn90.bson");
-pmos90file = BSON.load("../model/ptmp90-2021-02-12T18:04:33.896/ptmp90.bson");
+nmos90file = BSON.load("./model/current/op-nmos90.bson");
+pmos90file = BSON.load("./model/current/op-pmos90.bson");
 
 # Create Device-Structs
 ptmn90 = MOSFET( nmos90file[:model]
@@ -69,12 +74,6 @@ function mosfetOP(mos, Vgs, Vds, Vbs, W, L)
     input = DataFrame(Dict(ptmn90.paramsX .=> valuesX));
     result = mos == :n ? nmos(input) : pmos(input);
     return result
-end;
-
-function mosfetOP(Vgs, Vds, Vbs, W, L)
-    paramsX = [ "W", "L", "Vgs", "QVgs", "Vds", "EVds", "Vbs", "RVbs"];
-    valuesX = hcat(W, L, Vgs, Vgs.^2.0, Vds, exp.(Vds), Vbs, sqrt.(abs.(Vbs)));
-    DataFrame(valuesX, paramsX);
 end;
 
 # Convert Operating Point Parameters to Small Signal Netlist
@@ -125,6 +124,7 @@ L578    = 300e-9;
 vdsat12 = 0.2;
 vdsat346= 0.2;
 vdsat578= 0.2;
+CC      = 3.0e-12;
 
 # Find Operating Point based on Prior Knowledge
 
@@ -150,6 +150,7 @@ OTA = merge([ op2nl(1, OP12, φIN, φY, φZ, φSS)
             , op2nl(7, OP7, φI, φO, φSS, φSS)
             , op2nl(8, OP8, φI, φI, φSS, φSS)
             , op2nl(6, OP6, φX, φO, φDD, φDD)
+            , Dict(["Cc" => (:C, φX, φO, CC)])
             ]... );
 
 # Merge with Testbench

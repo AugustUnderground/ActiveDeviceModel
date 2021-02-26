@@ -328,7 +328,7 @@ idtTrue = @chain dataFrame begin
               .& (_.Vds .== VD))
              , ["id" , "Vgs"] ]
             sort(:Vgs)
-            _[:id]
+            _[:, :id]
           end;
 
 # Prediction from φ
@@ -348,7 +348,7 @@ idoTrue = @chain dataFrame begin
               .& (_.Vgs .== VG))
              , ["id" , "Vds"] ]
             sort(:Vds)
-            _[:id]
+            _[:, :id]
           end;
 
 # Prediction from φ 

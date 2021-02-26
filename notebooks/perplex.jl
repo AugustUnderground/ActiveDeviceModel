@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.12.20
+# v0.12.21
 
 using Markdown
 using InteractiveUtils
@@ -14,7 +14,7 @@ macro bind(def, element)
 end
 
 # ╔═╡ bf21b8ec-357f-11eb-023f-6b64f6e0da73
-using DataFrames, StatsBase, JLD2, StatsPlots, PlutoUI, DataInterpolations, PyCall, ScikitLearn, Optim, Random, Statistics, Distributions, BSON, Flux, Zygote, CUDA, PyCall, ScikitLearn, NNlib, CSVFiles, Lazy, BoxCoxTrans, YeoJohnsonTrans, StatsBase, MLDataUtils
+using DataFrames, StatsBase, JLD2, BSON, PlutoUI, DataInterpolations, PyCall, ScikitLearn, Optim, Random, Chain, Distributions, Flux, Zygote, CUDA, NNlib, CSVFiles, Lazy, MLDataUtils, Plots
 
 # ╔═╡ 31c636ac-55b8-11eb-19d6-8dc9af976a24
 begin
@@ -93,7 +93,7 @@ begin
 	dd = simData[ ( (simData.Vds .== vds)
                  .& (simData.Vbs .== 0.0)
 			 	 .& (simData.W .== w) )
-				, ["W", "L", "gm", "gds", "id", "vdsat", "fug"] ];
+				, ["W", "L", "gm", "gds", "id", "vdsat", "fug", "Vds", "Vgs", "Vbs"] ];
 	dd.idw = dd.id ./ dd.W;
 	dd.gmid = dd.gm ./ dd.id;
 	dd.a0 = dd.gm ./ dd.gds;
@@ -347,7 +347,7 @@ md"""
 
 # ╔═╡ 19e00e34-55b8-11eb-2ecd-3398e288598a
 begin	
-    ptmn90modelFile = "../model/op-ptmn90-2021-02-19T09:03:05.608/ptmn90.bson"
+    ptmn90modelFile = "../model/current/op-nmos90.bson"
     ptmn90model     = BSON.load(ptmn90modelFile);
     ptmn90          = ptmn90model[:model];
     ptmn90paramsX   = ptmn90model[:paramsX];
@@ -430,27 +430,147 @@ end;
 
 # ╔═╡ c059152c-5a7b-11eb-062c-9f68eca827dc
 md"""
-## Derivatives
+## Design Models
 
-While the absolute values of PREDICT data points are not technology independent, the general functionality of a Transistor _is_. E.g. by increasing the _width_, a larger current can fit through the device, regardless of technology node.
+"""
+
+# ╔═╡ c41d0f00-74f1-11eb-25bb-d58ae55f94e4
+begin	
+    νmodelFile = "../model/current/l-vdsat-nmos90.bson"
+    νmodel     = BSON.load(νmodelFile);
+    ν          = νmodel[:model];
+    νparamsX   = νmodel[:paramsX];
+    νparamsY   = νmodel[:paramsY];
+    νnumX      = length(νparamsX);
+    νnumY      = length(νparamsY);
+    νutX       = νmodel[:utX];
+    νutY       = νmodel[:utY];
+    νmaskBCX   = νmodel[:maskX];
+    νmaskBCY   = νmodel[:maskY];
+    νλ         = νmodel[:lambda];
+
+    function νpredict(X)
+        idxJd = first(indexin(["Jd"], String.(νparamsY)));
+        X[νmaskBCX,:] = bc.(abs.(X[νmaskBCX,:]); λ = νλ);
+        X′ = StatsBase.transform(νutX, X);
+        Y′ = ν(X′);
+        Y = StatsBase.reconstruct(νutY, Y′);
+        Y[νmaskBCY,:] = bc′.(Y[νmaskBCY,:]; λ = νλ);
+        return DataFrame(Float64.(adjoint(Y)), String.(νparamsY))
+        #return Float64.(Y[idxJd, : ])
+    end;
+end;
+
+# ╔═╡ 38182976-768e-11eb-3a4e-13f129525ad2
+begin
+    cLengths = unique(dd.L);
+    sliderCLidx = @bind sclIdx Slider( 1:length(cLengths)
+						             , default = 1
+                                     , show_value = false );
+	sliderCId = @bind scId Slider( 10e-6:5e-6:100e-6
+						         , default = 25e-6
+                                  , show_value = false );
+
+md"""
+`L` = $(sliderCLidx)
+
+`Id` = $(sliderCId)
+"""
+end
+
+# ╔═╡ 2cb7c2ec-768b-11eb-3c35-3fe8a77946a0
+begin
+    cStep = 12;
+    scL = cLengths[sclIdx];
+
+	cdL = dd[(dd.L .== scL), : ];
+    cdL.EVds = exp.(cdL.Vds);
+    cdL.RVbs = sqrt.(abs.(cdL.Vbs));
+
+	sort!(cdL, [:vdsat]);
+    cLen = size(cdL, 1);
+    cvdsat = cdL.vdsat;
+    cIdW = cdL.idw;
+    cdL.id = fill(scId, cLen);
+    
+    cX = Matrix(cdL[1:cStep:end,νparamsX])';
+    cY = νpredict(cX);
+    cJd = CubicSpline(Vector(cY.Jd), cdL.vdsat[1:cStep:end]);
+    cVg = CubicSpline(Vector(cY.Vgs), cdL.vdsat[1:cStep:end]);
+    cVeg = CubicSpline(Vector(cY.Veg), cdL.vdsat[1:cStep:end]);
+end;
+
+# ╔═╡ 8c903ee2-7690-11eb-3613-1ba636d404f5
+begin
+    cW = 1 / (cJd(0.2) / scId )
+end
+
+# ╔═╡ a5d08dae-768a-11eb-1965-f3a93fe4faa9
+md"""
+### Derivatives
 """
 
 # ╔═╡ faad964e-5a7b-11eb-30e5-7552e886738c
 begin
-	ddL = dd[(dd.L .== rand(unique(dd.L))),:]
-	sort!(ddL, [:gmid])
-	#L = diff(ddL.L);
-	∂gmid = diff(ddL.gmid);
-	#∂idW′∂L = diff(ddL.idw) ./ ∂L;
-	#∂A0′∂L = diff(ddL.a0) ./ ∂L;
-	∂idW′∂gmid = diff(ddL.idw) ./ ∂gmid;
-	∂A0′∂gmid = diff(ddL.a0) ./ ∂gmid;
+    νStep = 12;
+    ∂L = rand(unique(dd.L));
+	ddL = dd[(dd.L .== ∂L), : ];
+    ddL.EVds = exp.(ddL.Vds);
+    ddL.RVbs = sqrt.(abs.(ddL.Vbs));
+	sort!(ddL, [:vdsat]);
+
+	∂vdsat = diff(ddL.vdsat);
+	∂idW′∂vdsat = diff(ddL.idw) ./ ∂vdsat;
+    
+    νX = Matrix(ddL[1:νStep:end, νparamsX])';
+    #∂jd′∂vdsat = BSplineApprox( diff(νjd) ./ ∂vdsat, ddL.vdsat[2:end]
+    #                          , 3, 24, :ArcLen, :Average );
+    #∂jd′∂vdsat = diff(νjd) ./ ∂vdsat;
+    νjd = CubicSpline(Vector(νpredict(νX).Jd), ddL.vdsat[1:νStep:end]);
+    ∂jd′∂vdsat = [ first(Zygote.gradient(νjd, vdsat)) for vdsat in ddL.vdsat];
 end;
+
+# ╔═╡ f0f01ea8-768a-11eb-1601-5164f5993457
+begin
+    pvg = plot(cvdsat, ddL.Vgs; label = "True Vgs", xaxis = "vdsat", yaxis = "Vgs", w = 2);
+    pvg = plot!(cVg; label = "Pred Vgs", w = 2);
+    pvg = hline!(dd.Vds, w = 2)
+    pvg = vline!([0.2], w = 2)
+
+	pjd = plot(cvdsat, cIdW; label = "True Jd", xaxis = "vdsat", yaxis = "Jd", w = 2);
+    pjd = plot!(cJd; label = "Pred Jd", w = 2
+               , legend = :topleft, yscale = :log10
+               , title = "L = $(scL) and Id = $(scId)" );
+    plot(pvg, pjd)
+end
 
 # ╔═╡ f9a4397e-5a80-11eb-3843-2db5c69de322
 begin
-	plot(ddL.gmid, ddL.idw; label = "idW/(gm/id)", xaxis = "gm/id", yaxis = "id/W");
-	plot!(ddL.gmid[2:end], ∂idW′∂gmid; label = "∂idW/∂(gm/id)", title = "∂gm/id")
+	plot( ddL.vdsat, ddL.idw; label = "True Jd", xaxis = "vdsat", yaxis = "Jd", w = 2);
+	plot!(ddL.vdsat[2:end], ∂idW′∂vdsat; label = "True ∂Jd/∂vdsat", w = 2);
+    plot!(νjd; label = "Pred Jd", w = 2, legend = :topleft)
+	plot!(ddL.vdsat, ∂jd′∂vdsat; label = "Pred ∂Jd/∂vdsat", w = 2);
+end
+
+# ╔═╡ 3eef8156-769b-11eb-3fd6-03413a56f003
+md"""
+## MOS Diode
+"""
+
+# ╔═╡ 5b1e4d6c-769b-11eb-086a-f95a823efae2
+diodeData = simData[ simData.Vgs .== simData.Vds, : ];
+
+# ╔═╡ 6bd88a6e-769b-11eb-171b-a3a6ddfa2575
+diode = diodeData[ ( (diodeData.L .== scL) .& (diodeData.Vds .== vds) ), ["vdsat", "idW", "Vgs", "Vds" ] ];
+
+# ╔═╡ 3dd38b16-769c-11eb-16e4-876f4da1a450
+sort!(diode, [:vdsat])
+
+# ╔═╡ 53e83f68-769c-11eb-2687-2fc96c6ee575
+begin
+    plot(diode.vdsat, diode.idW; yscale = :log10);
+    plot!(diode.vdsat, diode.Vds)
+    plot!(diode.vdsat, diode.Vgs)
 end
 
 # ╔═╡ Cell order:
@@ -491,5 +611,16 @@ end
 # ╠═57ff103c-55bf-11eb-294a-d5ce2b0557c8
 # ╠═9e3dee36-55bc-11eb-355f-2f28faf37480
 # ╟─c059152c-5a7b-11eb-062c-9f68eca827dc
+# ╠═c41d0f00-74f1-11eb-25bb-d58ae55f94e4
+# ╠═2cb7c2ec-768b-11eb-3c35-3fe8a77946a0
+# ╠═f0f01ea8-768a-11eb-1601-5164f5993457
+# ╟─38182976-768e-11eb-3a4e-13f129525ad2
+# ╠═8c903ee2-7690-11eb-3613-1ba636d404f5
+# ╟─a5d08dae-768a-11eb-1965-f3a93fe4faa9
 # ╠═faad964e-5a7b-11eb-30e5-7552e886738c
-# ╟─f9a4397e-5a80-11eb-3843-2db5c69de322
+# ╠═f9a4397e-5a80-11eb-3843-2db5c69de322
+# ╟─3eef8156-769b-11eb-3fd6-03413a56f003
+# ╠═5b1e4d6c-769b-11eb-086a-f95a823efae2
+# ╠═6bd88a6e-769b-11eb-171b-a3a6ddfa2575
+# ╠═3dd38b16-769c-11eb-16e4-876f4da1a450
+# ╠═53e83f68-769c-11eb-2687-2fc96c6ee575

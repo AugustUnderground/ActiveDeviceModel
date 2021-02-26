@@ -23,7 +23,7 @@ using Chain
 ######################
 
 # File System
-paramName   = "gmid";
+paramName   = "A0-gmid";
 deviceName  = "ptmp45";
 deviceType  = :p;
 timeStamp   = string(Dates.now());
@@ -79,13 +79,13 @@ mask = @chain dataFrame begin
 
 mdf = dataFrame[mask, : ];
 
-## Define Features and Outputs
-#paramsX = [ "L", "id", "vdsat", "Vbs", "RVbs" ]; 
-#paramsY = [ "W", "gm", "gmid", "fug", "gds", "Vgs", "Veg", "Jd", "A0" ]; 
-#
-## Box-Cox Transformation Mask
-#maskBCX = paramsX .∈([ "id" ],);
-#maskBCY = paramsY .∈([ "gm", "gmid", "gds", "fug", "Jd", "A0"],);
+# Define Features and Outputs
+paramsX = [ "A0", "id", "gmid", "Vds", "EVds", "Vbs", "RVbs" ]; 
+paramsY = [ "W", "L", "gm","gds", "vdsat", "Vgs", "Veg", "Jd", "fug" ]; 
+
+# Box-Cox Transformation Mask
+maskBCX = paramsX .∈([ "A0", "id", "gmid" ],);
+maskBCY = paramsY .∈([ "gm", "gds", "Jd", "fug"],);
 
 ### GOOD STUFF (vdsat) #####
 #paramsX = [ "L", "id", "vdsat", "Vds", "EVds", "Vbs", "RVbs" ]; 
@@ -95,10 +95,10 @@ mdf = dataFrame[mask, : ];
 ###################
 
 ### GOOD STUFF (gmid) #####
-paramsX = [ "L", "id", "gmid", "Vds", "EVds", "Vbs", "RVbs" ]; 
-paramsY = [ "W", "gm", "vdsat", "fug", "gds", "Vgs", "QVgs", "Veg", "Jd", "A0" ]; 
-maskBCX = paramsX .∈([ "id", "gmid" ],);
-maskBCY = paramsY .∈([ "gm", "gds", "fug", "Jd", "A0"],);
+#paramsX = [ "L", "id", "gmid", "Vds", "EVds", "Vbs", "RVbs" ]; 
+#paramsY = [ "W", "gm", "vdsat", "fug", "gds", "Vgs", "QVgs", "Veg", "Jd", "A0" ]; 
+#maskBCX = paramsX .∈([ "id", "gmid" ],);
+#maskBCY = paramsY .∈([ "gm", "gds", "fug", "Jd", "A0"],);
 ###################
 
 # Number of In- and Outputs, for respective NN Layers
@@ -260,14 +260,14 @@ losses = hcat( map((e) -> Float64(e[1]), errs)
 plot( 1:numEpochs, losses; lab = ["MSE" "MAE"]
     , xaxis = ("# Epoch", (1,numEpochs))
     , yaxis = ("Error", (0.0, ceil( max(losses...)
-                                , digits = 3 )) )
+                                  , digits = 3 )) )
     , w = 2 )
 
 ## Use Current model ##
 γ = γ |> cpu;
 
 ## Load specific model ##
-modelFile = "./model/vdsat-ptmn45-2021-02-19T14:44:39.674/ptmn45.bson"
+#modelFile = "./model/vdsat-ptmn90-2021-02-22T14:14:31.445/ptmn90.bson"
 model   = BSON.load(modelFile);
 γ       = model[:model];
 paramsX = model[:paramsX];

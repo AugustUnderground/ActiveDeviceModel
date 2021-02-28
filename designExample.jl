@@ -1,20 +1,25 @@
-using FiniteDifferences
-
-using mna
-using BSON
-using DataFrames
-using StatsBase
 using Plots
+using PlutoUI
 using Flux
+using Zygote
+using CUDA
+using BSON
+using JLD2
+using StatsBase
+using NNlib
+using FiniteDifferences
+using DataFrames
+using Optim
+using LineSearches
+using NumericIO
+using Chain
+using ForwardDiff
+using DataInterpolations
 
-## Setup
+inspectdr();
 
-# Box-Cox Transformation Utility Functions
-boxCox(yᵢ; λ = 0.2) = λ != 0 ? (((yᵢ.^λ) .- 1) ./ λ) : log.(yᵢ);
-coxBox(y′; λ = 0.2) = λ != 0 ? exp.(log.((λ .* y′) .+ 1) / λ) : exp.(y′);
-
-# MOSFET Model Definition
-struct MOSFET
+struct OPERATOR
+    parameter
     model
     paramsX
     paramsY
@@ -25,137 +30,145 @@ struct MOSFET
     lambda
 end;
 
-# Load Trained Transistor Models
-nmos90file = BSON.load("./model/current/op-nmos90.bson");
-pmos90file = BSON.load("./model/current/op-pmos90.bson");
+boxCox(yᵢ; λ = 0.2) = λ != 0 ? (((yᵢ.^λ) .- 1) ./ λ) : log.(yᵢ);
+coxBox(y′; λ = 0.2) = λ != 0 ? exp.(log.((λ .* y′) .+ 1) / λ) : exp.(y′);
 
-# Create Device-Structs
-ptmn90 = MOSFET( nmos90file[:model]
-               , String.(nmos90file[:paramsX])
-               , String.(nmos90file[:paramsY])
-               , nmos90file[:utX]
-               , nmos90file[:utY]
-               , nmos90file[:maskX]
-               , nmos90file[:maskY]
-               , nmos90file[:lambda] );
-
-ptmp90 = MOSFET( pmos90file[:model]
-               , String.(pmos90file[:paramsX])
-               , String.(pmos90file[:paramsY])
-               , pmos90file[:utX]
-               , pmos90file[:utY]
-               , pmos90file[:maskX]
-               , pmos90file[:maskY]
-               , pmos90file[:lambda] );
-
-# Define Convenience Functions to evaluate Operating point
-function nmos(Xd)
-    X = Matrix(Xd[:,ptmn90.paramsX])';
-    X[ptmn90.maskX,:] = boxCox.(abs.(X[ptmn90.maskX,:]); λ = ptmn90.lambda);
-    X′ = StatsBase.transform(ptmn90.utX, X);
-    Y′ = ptmn90.model(X′);
-    Y = StatsBase.reconstruct(ptmn90.utY, Y′);
-    Y[ptmn90.maskY,:] = coxBox.(Y[ptmn90.maskY,:]; λ = ptmn90.lambda);
-    return DataFrame(Float64.(Y'), String.(ptmn90.paramsY))
+normL(L) = (L - Lmin) / (Lmax - Lmin);
+realL(L′) = L′ * (Lmax - Lmin) + Lmin;
+    
+function loadOperator(fileName)
+	operatorFile = BSON.load(fileName);
+    op = OPERATOR( operatorFile[:parameter]
+                 , operatorFile[:model]
+                 , String.(operatorFile[:paramsX])
+                 , String.(operatorFile[:paramsY])
+                 , operatorFile[:utX]
+                 , operatorFile[:utY]
+                 , operatorFile[:maskX]
+                 , operatorFile[:maskY]
+                 , operatorFile[:lambda] );
+    function operator(l, id, param, vds, vbs)
+        input = adjoint(hcat(l, id, param, vds, exp.(vds), vbs, sqrt.(abs.(vbs))));
+        X = Matrix(input);
+        X[op.maskX,:] = boxCox.( abs.(X[op.maskX,:])
+                               ; λ = op.lambda);
+        X′ = StatsBase.transform(op.utX, X);
+        Y′ = op.model(X′);
+        Y = StatsBase.reconstruct(op.utY, Y′);
+        Y[op.maskY,:] = coxBox.( Y[op.maskY,:]; λ = op.lambda);
+        return DataFrame(Float64.(Y'), op.paramsY)
+    end;
+    return op,operator
 end;
 
-function pmos(Xd)
-    X = Matrix(Xd[:,ptmp90.paramsX])';
-    X[ptmp90.maskX,:] = boxCox.(abs.(X[ptmp90.maskX,:]); λ = ptmp90.lambda);
-    X′ = StatsBase.transform(ptmp90.utX, X);
-    Y′ = ptmp90.model(X′);
-    Y = StatsBase.reconstruct(ptmp90.utY, Y′);
-    Y[ptmp90.maskY,:] = coxBox.(Y[ptmp90.maskY,:]; λ = ptmp90.lambda);
-    return DataFrame(Float64.(Y'), String.(ptmp90.paramsY))
+opνn90, νln90 = loadOperator("./model/current/l-vdsat-nmos90.bson");
+opνp90, νlp90 = loadOperator("./model/current/l-vdsat-pmos90.bson");
+opγn90, γln90 = loadOperator("./model/current/l-gmid-nmos90.bson");
+opγp90, γlp90 = loadOperator("./model/current/l-gmid-pmos90.bson");
+
+VDD  = 1.2;
+VSS  = 0.0;
+Vicm = 0.5;
+Vocm = 0.6;
+Lmin = 1.0e-7;
+Lmax = 1.0e-6;
+Linit = 3Lmin;
+
+M = 5.0;
+K = 0.5;
+Iref = 50e-6;
+CL = 10e-12;
+
+L90 = 3e-7;
+
+function symamp(L12, L34, L78) # vdsat12, vdsat34, vdsat78, vdsat90
+    I68 = ((K * M) / 2 ) * Iref;
+    MN8 = νln90(L78, I68, vdsat78, Vocm, 0.0);
+    W78, gds8, Vgs8, Jd8 = Matrix(MN8[:,[:W, :gds, :Vgs, :Jd]]);
+    W78 = I68 / Jd8;
+    Vd = Vgs8;
+    MP6 = νlp90(L34, I68, vdsat34, Vocm, 0.0);
+    W56, gds6, Vgs6, Jd6 = Matrix(MP6[:,[:W, :gds, :Vgs, :Jd]]);
+    W56 = I68 / Jd6;
+    W34 = W56 / M;
+    Vb = Vc = (VDD - Vgs6);
+    I12 = (K / 2) * Iref;
+    Va = Vc / 2;
+    #MN1 = γln90(L12, I12, gmid12, (Vb - Va), -Va);
+    #MN1 = νln90(L12, I12, vdsat12, VDD/3, 0.0);
+    MN1 = γln90(L12, I12, gmid12, Va, 0.0);
+    W12, gm1, Jd1 = Matrix(MN1[:,[:W, :gm, :Jd]]);
+    W12 = I12 / Jd1;
+    I90 = K * Iref;
+    MN9 = νln90(L90, I90, vdsat90, Va, 0.0);
+    W9, Vgs9, Jd9 = Matrix(MN9[:,[:W, :Vgs, :Jd]]);
+    W9 = I90 / Jd9;
+    W0 = W9 / K;
+    rout = 1 / (gds6 + gds8);
+    A₀ = M * gm1 * rout ;
+    A₀dB = 20 * log10(abs(A₀));
+    #ω₀ = 1 / (CL * rout);
+    f₀ = 1 / (2π * CL * rout);
+    SR = I68 / CL;
+    return [A₀dB, f₀, SR, W12, W34, W56, W78, W9, W0]
 end;
 
-function mosfetOP(mos, Vgs, Vds, Vbs, W, L)
-    valuesX = [W, L, Vgs, Vgs^2.0, Vds, exp(Vds), Vbs, sqrt(abs(Vbs))];
-    input = DataFrame(Dict(ptmn90.paramsX .=> valuesX));
-    result = mos == :n ? nmos(input) : pmos(input);
-    return result
+gmid12 = 12;
+vdsat34 = 0.2;
+vdsat78 = 0.2;
+vdsat90 = 0.2;
+
+A₀Target = 45.0;
+f₀Target = 150e3;
+ 
+lowerBound = [0.0, 0.0, 0.0, 0.0];
+upperBound = [1.0, 1.0, 1.0, 1.0];
+gInitial = [0.4, 0.6, 0.5, 0.2];
+fInitial = [0.2, 0.2, 0.2, 0.2];
+   
+#lower   = [0.1, 0.1, 0.1, 0.1, 2e-7, 2e-7, 2e-7, 2e-7];
+#upper   = [0.3, 0.3, 0.3, 0.3, 2e-6, 2e-6, 2e-6, 2e-6];
+#init    = [0.1, 0.1, 0.1, 0.1, 3e-7, 3e-7, 3e-7, 3e-7];
+#init = rand(8);
+#norm(X) = (X - lower) ./ (upper - lower);
+#mron(X′) = X′ .* (upper - lower) + lower;
+
+#optimAlgorithm = ConjugateGradient();
+optimAlgorithm = GradientDescent();
+#optimAlgorithm = NelderMead();
+#optimAlgorithm = GradientDescent(linesearch=LineSearches.BackTracking(order=2));
+#optimAlgorithm = LBFGS();
+
+optimOptions = Optim.Options( g_tol = 1e-3
+                            , x_tol = 1e-3
+                            , f_tol = 1e-3
+                            , time_limit = 25.0 
+                            , show_trace = true
+                            ); 
+
+function symampGainObjective(X)
+    A₀dB, _ = symamp(realL.(X)...);
+    return abs2(A₀dB - A₀Target)
 end;
 
-# Convert Operating Point Parameters to Small Signal Netlist
-function op2nl(idx, OP, φG, φD, φS, φB)
-    Dict([ "cgd$(idx)" => (:C, φG, φD, OPdf.cgd)
-         , "cgs$(idx)" => (:C, φG, φS, OPdf.cgs)
-         , "cgb$(idx)" => (:C, φG, φB, OPdf.cgb)
-         , "cds$(idx)" => (:C, φD, φS, OPdf.cds)
-         , "cdb$(idx)" => (:C, φD, φB, OPdf.cdb)
-         , "csb$(idx)" => (:C, φS, φB, OPdf.csb)
-         , "gm$(idx)"  => (:VCCS, φG, φS, φD, φS, OPdf.gm)
-         , "gmb$(idx)" => (:VCCS, φB, φS, φD, φS, OPdf.gmb)
-         , "gds$(idx)" => (:G, φD, φS, OPdf.gds) ]);
+a0Results = optimize( symampGainObjective, zeros(3), ones(3), rand(3)
+                    , Fminbox(optimAlgorithm), optimOptions)
+
+designParamters = realL.(a0Results.minimizer)
+design = symamp(designParamters...)
+
+
+
+
+
+function symampBWObjective(X)
+    _, ω₀, _ = symamp(realL.(X)...);
+    return -(ω₀ / 2π)
 end;
 
-## Single Ended, Two Stage OTA
+f0Results = optimize( symampBWObjective, norm(lower), norm(upper), rand(8)
+                    , Fminbox(optimAlgorithm), optimOptions)
 
-# Nets
-φSS = 0;
-φIP = 1;
-φIN = 2;
-φI  = 3;
-φZ  = 4;
-φX  = 5;
-φY  = 6;
-φO  = 7;
-φDD = 8;
+designParamters = mron(f0Results.minimizer)
+design = symamp(designParamters...)
 
-# Prior Knowledge / Specifications
-Vdd     = 1.2;
-Vss     = 0.0;
-Ibias   = 30e-6;
-Vicm    = 0.6;
-Vocm    = 0.6;
-CL      = 10e-12;
-
-# Testbench for Small-Signal Analysis
-testbench = Dict([ "VDD" => (:V, φDD, φSS, Vdd)
-                 , "VIP" => (:V, φIP, φSS, Vicm)
-                 , "VIN" => (:V, φIN, φSS, Vicm)
-                 , "VO"  => (:V, φO, φSS, Vocm)
-                 , "CL"  => (:C, φO, φSS, CL) ]);
-
-# Design Parameters
-L12     = 300e-9;
-L346    = 300e-9;
-L578    = 300e-9;
-vdsat12 = 0.2;
-vdsat346= 0.2;
-vdsat578= 0.2;
-CC      = 3.0e-12;
-
-# Find Operating Point based on Prior Knowledge
-
-# M6
-# M7, (M5, M8)
-# M3, M4
-# M1, M2
-
-# Get Operating Point Parameters
-OP12 = mosfetOP(:n, (Vicm - Vz), (Vx - Vz), -Vz,  L12, W12)
-OP34 = mosfetOP(:p, (Vdd - Vx), (Vdd - Vx), 0.0, L346, W34);
-OP5  = mosfetOP(:n, Vi, Vz, 0.0, L578, W58);
-OP8  = mosfetOP(:n, Vi, Vi, 0.0, L578, W58);
-OP7  = mosfetOP(:n, Vi, Vocm, 0.0, L578, W7);
-OP6  = mosfetOP(:p, (Vdd - Vx), (Vdd - Vocm), 0.0, L578, W7);
-
-# Create Small-Signal Netlist
-OTA = merge([ op2nl(1, OP12, φIN, φY, φZ, φSS) 
-            , op2nl(2, OP12, φIP, φX, φZ, φSS)
-            , op2nl(3, OP34, φY, φY, φDD, φDD)
-            , op2nl(4, OP34, φY, φX, φDD, φDD)
-            , op2nl(5, OP5, φI, φZ, φSS, φSS)
-            , op2nl(7, OP7, φI, φO, φSS, φSS)
-            , op2nl(8, OP8, φI, φI, φSS, φSS)
-            , op2nl(6, OP6, φX, φO, φDD, φDD)
-            , Dict(["Cc" => (:C, φX, φO, CC)])
-            ]... );
-
-# Merge with Testbench
-ckt = merge(OTA, testbench);
-
-# Small-Signal Analysis
-x = mna.analyze(ckt)
-tf = transferFunction(x);

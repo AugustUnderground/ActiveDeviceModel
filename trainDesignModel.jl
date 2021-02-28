@@ -23,8 +23,8 @@ using Chain
 ######################
 
 # File System
-paramName   = "A0-gmid";
-deviceName  = "ptmp45";
+paramName   = "L-gmid";
+deviceName  = "ptmp90";
 deviceType  = :p;
 timeStamp   = string(Dates.now());
 modelDir    = "./model/$(paramName)-$(deviceName)-$(timeStamp)";
@@ -76,16 +76,14 @@ mask = @chain dataFrame begin
             vec()
             collect()
        end;
-
 mdf = dataFrame[mask, : ];
 
 # Define Features and Outputs
-paramsX = [ "A0", "id", "gmid", "Vds", "EVds", "Vbs", "RVbs" ]; 
-paramsY = [ "W", "L", "gm","gds", "vdsat", "Vgs", "Veg", "Jd", "fug" ]; 
-
+paramsX = [ "L", "id", "gmid", "Vds", "EVds", "Vbs", "RVbs" ]; 
+paramsY = [ "W", "gm", "gds", "Vgs", "QVgs", "fug", "Jd", "A0", "vth" ]; 
 # Box-Cox Transformation Mask
-maskBCX = paramsX .∈([ "A0", "id", "gmid" ],);
-maskBCY = paramsY .∈([ "gm", "gds", "Jd", "fug"],);
+maskBCX = paramsX .∈([ "id", "gmid" ],);
+maskBCY = paramsY .∈([ "gm", "gds", "fug", "Jd", "A0" ],);
 
 ### GOOD STUFF (vdsat) #####
 #paramsX = [ "L", "id", "vdsat", "Vds", "EVds", "Vbs", "RVbs" ]; 
@@ -107,34 +105,57 @@ numY = length(paramsY);
 
 ## Sample Data for appropriate distribution
 
-# Sample 3/4ths of Data in Saturation Region with probability weighted Id
+# When VGS > Vth and VDS ≥ (VGS – Vth):
 sdf = mdf[ ifelse( deviceType == :n
-                 , mdf.Vds .>= (mdf.Vgs .- mdf.vth) 
-                 , mdf.Vds .<= (mdf.Vgs .+ mdf.vth) ) 
+                 , ( ( mdf.Vds .>= (mdf.Vgs .- mdf.vth) ) .& ( mdf.Vgs .> mdf.vth) )
+                 , ( ( mdf.Vds .<= (mdf.Vgs .+ mdf.vth) ) .& ( mdf.Vgs .> mdf.vth) ) )
          , :];
-sSamp = sdf[ StatsBase.sample( MersenneTwister(rngSeed)
-                             , 1:size(sdf, 1)
-                             , StatsBase.pweights(sdf.id)
-                             , 3000000
-                             ; replace = false
-                             , ordered = false )
-           , : ];
+df = sdf[ StatsBase.sample( MersenneTwister(rngSeed)
+                          , 1:size(sdf, 1)
+                          #, StatsBase.pweights(sdf.gds)
+                          , 4000000
+                          ; replace = false
+                          , ordered = false )
+        , : ];
 
-# Sample 1/3rd of Data in Triode Region without weights
-tdf = mdf[ ifelse( deviceType == :n
-                 , mdf.Vds .<= (mdf.Vgs .- mdf.vth) 
-                 , mdf.Vds .>= (mdf.Vgs .+ mdf.vth) ) 
-         , :];
-tSamp = tdf[ StatsBase.sample( MersenneTwister(rngSeed)
-                             , 1:size(tdf, 1)
-                             #, StatsBase.pweights(tdf.id)
-                             , 1000000
-                             ; replace = false
-                             , ordered = false )
-           , : ];
+#L = rand(filter(l -> l < 1.0e-6, unique(mdf.L)));
+#W = rand(filter(w -> w < 2.0e-6, unique(mdf.W)));
+#trace = sort( df[ ( (df.L .== L)
+#                 .& (df.W .== W)
+#                 .& (round.(df.Vbs; digits = 2) .== 0.0)
+#                 .& (round.(df.Vds; digits = 2) .== 0.6) )
+#                , : ]
+#             , ["vdsat", "gm", "gds" ] )
+#
+#plot(trace.vdsat, trace.gm)
 
-# Join samples and shuffle all observations
-df = shuffleobs(vcat(tSamp, sSamp));
+## Sample 3/4ths of Data in Saturation Region with probability weighted Id
+#sdf = mdf[ ifelse( deviceType == :n
+#                 , mdf.Vds .>= (mdf.Vgs .- mdf.vth) 
+#                 , mdf.Vds .<= (mdf.Vgs .+ mdf.vth) ) 
+#         , :];
+#sSamp = sdf[ StatsBase.sample( MersenneTwister(rngSeed)
+#                             , 1:size(sdf, 1)
+#                             #, StatsBase.pweights(sdf.id)
+#                             , StatsBase.pweights(sdf.gds)
+#                             , 3000000
+#                             ; replace = false
+#                             , ordered = false )
+#           , : ];
+## Sample 1/3rd of Data in Triode Region without weights
+#tdf = mdf[ ifelse( deviceType == :n
+#                 , mdf.Vds .<= (mdf.Vgs .- mdf.vth) 
+#                 , mdf.Vds .>= (mdf.Vgs .+ mdf.vth) ) 
+#         , :];
+#tSamp = tdf[ StatsBase.sample( MersenneTwister(rngSeed)
+#                             , 1:size(tdf, 1)
+#                             #, StatsBase.pweights(tdf.gds)
+#                             , 1000000
+#                             ; replace = false
+#                             , ordered = false )
+#           , : ];
+## Join samples and shuffle all observations
+#df = shuffleobs(vcat(tSamp, sSamp));
 
 # Convert to Matrix for Flux
 rawX = Matrix(df[ : , paramsX ])';
@@ -242,7 +263,7 @@ function trainModel()
 end
 
 ### Run Training
-numEpochs = 100;                                    # total number of epochs
+numEpochs = 50;                                    # total number of epochs
 lowestMAE = Inf;                                    # initialize MAE with ∞
 errs = [];                                          # Array of training and validation losses
 
@@ -322,30 +343,51 @@ function predict(X)
 end;
 
 L = rand(filter(l -> l < 1.0e-6, unique(mdf.L)));
+W = rand(filter(w -> w < 2.0e-6, unique(mdf.W)));
 Id = 20e-6;
 Vbs = 0.0;
 Vds = 0.6;
 
+param = split(param, "-")[2];
+
 traceT = sort( mdf[ ( (mdf[:,"L"] .== L)
+                   .& (mdf[:,"W"] .== W)
                    .& (mdf[:,"Vbs"] .== Vbs)
                    .& (mdf[:,"Vds"] .== Vds) )
-                  , [param, "Jd", "id"] ]
-             , param );
+                  , : ]
+             , [param, "gm", "gds" ] );
 
 len = length(traceT[:,param]);
 
-l = fill(L, len);
+l = traceT[:,"L"];
 id = fill(Id, len);
 #id = traceT.id;
 para = traceT[:,param];
-vds = fill(Vds, len);
+vds = traceT[:,"Vds"];
 evds = exp.(vds);
-vbs = fill(Vbs, len);
+vbs = traceT[:,"Vbs"];
 rvbs = sqrt.(abs.(vbs));
 
 x = [ l id para vds evds vbs rvbs ]';
 y = predict(x);
 
 plot( para, y.Jd; yscale = :log10
-    , lab = "Approx", w = 2, xaxis = param, yaxis = "id/W" );
+    , lab = "Aprx", w = 2, xaxis = param, yaxis = "id/W" );
 plot!(para, traceT.Jd, yscale = :log10, lab = "True", w = 2)
+
+plot( para, y.A0; yscale = :log10
+    , lab = "Aprx", w = 2, xaxis = param, yaxis = "gds" );
+#plot!(para, y.gm ./ y.gds; lab = "Aprx", w = 2)
+plot!(para, traceT.A0; lab = "True", w = 2)
+#plot!(para, traceT.gm ./ traceT.gds; lab = "True", w = 2)
+
+plot(para, y.gm; lab = "Aprx", w = 2);
+plot!(para, traceT.gm; lab = "True", w = 2)
+
+plot(para, y.gds; lab = "Aprx", w = 2);
+plot!(para, traceT.gds; lab = "True", w = 2)
+
+#plot!(para, y.gm ./ y.gds; lab = "Aprx", w = 2);
+#plot!(para, traceT.gm ./ traceT.gds; lab = "True", w = 2);
+#plot!(para, y.A0; lab = "Aprx", w = 2);
+#plot!(para, traceT.A0; lab = "True", w = 2)

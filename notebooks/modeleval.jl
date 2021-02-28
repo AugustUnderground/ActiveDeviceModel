@@ -31,7 +31,7 @@ end
 
 # ╔═╡ 69d38de8-50fa-11eb-1e3d-4bc49627f622
 md"""
-# Machine Learnign Model Evaluation
+# Machine Learning Model Evaluation
 
 ## Imports and Setup
 """
@@ -308,7 +308,7 @@ begin
     ∂A0 = ∇A0.(sweepᵥ)
     ∇Jd(vdsat) = first(Zygote.gradient(Jdγ, vdsat));
     ∂Jd = ∇Jd.(sweepᵥ)
-end
+end;
 
 # ╔═╡ 87c15636-76bc-11eb-0985-99a62dc1c233
 md"""
@@ -324,8 +324,8 @@ begin
     VSS  = 0.0;
     Vicm = 0.5;
     Vocm = 0.6;
-    Lmin = 1.0e-7;
-    Lmax = 1.0e-6;
+    Lmin = 3.0e-7;
+    Lmax = 3.0e-6;
 end;
 
 # ╔═╡ d3a287be-75d6-11eb-35a4-732cd461df58
@@ -401,10 +401,15 @@ to obtain sizing for $NM_{\text{cm,41}}$ and $NM_{\text{cm,42}}$.
 
 # ╔═╡ 3d6ff8da-7748-11eb-1d9c-ab6c3e3618fa
 begin
-    I68 = ((K * M) / 2 ) * Iref;
+    #I68 = ((K * M) / 2 ) * Iref;
+	I68 = 46e-6;
     MN8 = νₙ(L78, I68, vdsat78, Vocm, 0.0);
-    W78, gds8, Vgs8, Jd8 = Matrix(MN8[:,[:W, :gds, :Vgs, :Jd]]);
-    #W78 = I68 / Jd8;
+    Vgs8, Jd8, gds8 = Matrix(MN8[:,[:Vgs, :Jd, :gds]]);
+    W78 = I68 / Jd8;
+	
+	#OP8 = φₙ(Vgs8, Vocm, 0.0, W78, L78)
+	#gds8, gm8 = Matrix(OP8[:,[:gds, :gm]]);
+	
     Vd = Vgs8;
 end;
 
@@ -422,15 +427,18 @@ as well as $PM_{\text{cm,31}}$ and $PM_{\text{cm,32}}$.
 
 # ╔═╡ de5a675a-7748-11eb-2abd-9d75649902f8
 begin
-    MP6 = νₚ(L34, I68, vdsat34, Vocm, 0.0);
-    W65, gds6, Vgs6, Jd6 = Matrix(MP6[:,[:W, :gds, :Vgs, :Jd]]);
-    #W65 = I68 / Jd6;
+    MP6 = νₚ(L34, I68, vdsat34, (VDD - Vocm), 0.0);
+    Vgs6, Jd6, gds6 = Matrix(MP6[:,[:Vgs, :Jd, :gds]]);
+    W65 = I68 / Jd6;
     W34 = W65 / M;
     Vb = Vc = (VDD - Vgs6);
-
-    I34 = I68 / M;
-    MP4 = νₚ(L34, I34, vdsat34, (VDD - Vb), 0.0);
-    W4, gds4, Vgs4, Jd4 = Matrix(MP4[:,[:W, :gds, :Vgs, :Jd]]);
+    
+	#OP6 = φₚ(Vgs6, (VDD - Vocm), 0.0, W65, L34)
+	#gds6, gm6 = Matrix(OP6[:,[:gds, :gm]]);
+	
+    #I34 = I68 / M;
+    #MP4 = νₚ(L34, I34, vdsat34, (VDD - Vb), 0.0);
+    #W4, gds4, Vgs4, Jd4 = Matrix(MP4[:,[:W, :gds, :Vgs, :Jd]]);
 end;
 
 # ╔═╡ f9a7f5be-7748-11eb-39bc-0f74d0dd0453
@@ -449,11 +457,15 @@ to obtain sizing for $NM_{\text{diff,1}}$ and $NM_{\text{diff,2}}$,
 # ╔═╡ 166a48ca-7749-11eb-02c4-0704b6909715
 begin
     I12 = (K / 2) * Iref;
-    Va = Vc / 2;
-    MN1 = γₙ(L12, I12, gmid12, (Vb - Va), -Va);
-    W12, gm1, Jd1 = Matrix(MN1[:,[:W, :gm, :Jd]]);
-    #W12 = I12 / Jd1;
+    Va = Vc / 3;
+    
+	MN1 = γₙ(L12, I12, gmid12, (Vc - Va), -Va);
+
+    Vgs1, Jd1, gm1 = Matrix(MN1[:,[:Vgs, :Jd, :gm]]);
     W12 = I12 / Jd1;
+	
+	#OP1 = φₙ((Vicm - Va), (Vc - Va), -Va, W12, L12)
+	#gds1, gm1 = Matrix(OP1[:,[:gds, :gm]]);
 end;
 
 # ╔═╡ 2a7c0dba-7749-11eb-20cd-210ab922d0af
@@ -474,7 +486,7 @@ begin
     I90 = K * Iref;
     MN9 = νₙ(L90, I90, vdsat90, Va, 0.0);
     W9, Vgs9, Jd9 = Matrix(MN9[:,[:W, :Vgs, :Jd]]);
-    #W9 = I90 / Jd9;
+    W9 = I90 / Jd9;
     W0 = W9 / K;
 end;
 
@@ -487,6 +499,9 @@ $$A_{0} = M \cdot g_{\text{m},1} \cdot r_{\text{out}}$$
 
 **Cutoff Frequency:**
 $$f_{0} = ( 2 \pi \cdot C_{\text{L}} \cdot r_{\text{out}} )^{-1}$$
+
+**Slew Rate:**
+$$\text{SR} = \frac{M \cdot K \cdot I_{\text{ref}}}{2 \cdot C_{\text{L}}}$$
 """
 
 # ╔═╡ 5215f098-7746-11eb-0c16-a1a3b9c5ae81
@@ -496,8 +511,8 @@ begin
     A0 = M * gm1 * rout ;
     A0dB = 20 * log10( abs( A0) );
 
-    ω0 = 1 / (CL * rout);
-    f0 = ω0 / (2π)
+    f0 = 1 / (2π * CL * rout);
+    ω0 = 1 / (CL * rout)
     
     GBW = A0 * f0;
     
@@ -505,10 +520,12 @@ begin
 end;
 
 # ╔═╡ 3dbf3974-54fa-11eb-1901-c310b0dd8685
+begin
+#$(PlutoUI.LocalResource("./symamp.png"))
 md"""
 ### Summary
 
-$(PlutoUI.LocalResource("./symamp.png"))
+![](https://gitlab-forschung.reutlingen-university.de/electronics-and-drives/tikzlib/-/raw/master/img/schematic_sym-opamp.png)
 
 **Specification:**
 
@@ -546,6 +563,7 @@ $(PlutoUI.LocalResource("./symamp.png"))
 | GBW  | $(formatted(GBW, :ENG; ndigits = 5)) |
 | SR  | $(formatted(SR, :ENG; ndigits = 5)) |
 """
+end
 
 # ╔═╡ e703b8fc-776e-11eb-19f8-cd6b4888e233
 begin
@@ -574,34 +592,42 @@ or interactively, it can be *abused* with an optimizer.
 """
 
 # ╔═╡ b4e1b330-774e-11eb-2e19-61f86b046c52
-function symamp(l12, l34, l78, l90, Gmid12, Vdsat34, Vdsat78, Vdsat90)
-    i68 = ((K * M) / 2 ) * Iref;
-    mn8 = νₙ(l78, i68, Vdsat78, Vocm, 0.0);
-    w78, Gds8, vgs8 = Matrix(mn8[:,[:W, :gds, :Vgs]]);
-    vd = vgs8;
-
-    mp6 = νₚ(l34, i68, Vdsat34, Vocm, 0.0);
-    w56, Gds6, vgs6 = Matrix(mp6[:,[:W, :gds, :Vgs]]);
-    w34 = w56 / M;
-    vb = vc = (VDD - vgs6);
-
-    i12 = (K / 2) * Iref;
-    va = vc / 2;
-    mn1 = γₙ(l12, i12, Gmid12, (vb - va), -va);
-    w12, Gm1 = Matrix(mn1[:,[:W, :gm]]);
-
-    i90 = K * Iref;
-    mn9 = νₙ(l90, i90, Vdsat90, va, 0.0);
-    w9, vgs9 = Matrix(mn9[:,[:W, :Vgs]]);
-    w0 = w9 / K;
-
-    Rout = 1 / (Gds6 + Gds8);
-    a0 = M * Gm1 * Rout ;
-    a0dB = 20 * log10( abs( a0 ) );
-    F0 = 1 / (2π * CL * Rout);
-
-    return [a0dB, F0, w12, w34, w56, w78, w9, w0]
+function symamp(L12, L34, L78, L90, gmid12, vdsat34, vdsat78, vdsat90)
+    I68 = ((K * M) / 2 ) * Iref;
+    MN8 = νₙ(L78, I68, vdsat78, Vocm, 0.0);
+    W78, gds8, Vgs8, Jd8 = Matrix(MN8[:,[:W, :gds, :Vgs, :Jd]]);
+    #W78 = I68 / Jd8;
+    Vd = Vgs8;
+	
+    MP6 = νₚ(L34, I68, vdsat34, Vocm, 0.0);
+    W56, gds6, Vgs6, Jd6 = Matrix(MP6[:,[:W, :gds, :Vgs, :Jd]]);
+    #W56 = I68 / Jd6;
+    W34 = W56 / M;
+    Vb = Vc = (VDD - Vgs6);
+    I12 = (K / 2) * Iref;
+    Va = Vc / 2;
+	
+    MN1 = γₙ(L12, I12, gmid12, (Vb - Va), -Va);
+    #MN1 = νₙ(L12, I12, vdsat12, VDD/3, 0.0);
+    #MN1 = γₙ(L12, I12, gmid12, Va, 0.0);
+    W12, gm1, Jd1 = Matrix(MN1[:,[:W, :gm, :Jd]]);
+    #W12 = I12 / Jd1;
+	
+    I90 = K * Iref;
+    MN9 = νₙ(L90, I90, vdsat90, Va, 0.0);
+    W9, Vgs9, Jd9 = Matrix(MN9[:,[:W, :Vgs, :Jd]]);
+    #W9 = I90 / Jd9;
+    W0 = W9 / K;
+	
+    rout = 1 / (gds6 + gds8);
+    A₀ = M * gm1 * rout ;
+    A₀dB = 20 * log10(abs(A₀));
+    #ω₀ = 1 / (CL * rout);
+    f₀ = 1 / (2π * CL * rout);
+    return [A₀dB, f₀, W12, W34, W56, W78, W9, W0]
 end;
+
+
 
 # ╔═╡ 1980a07a-7752-11eb-22d2-31964e897bfc
 md"""
@@ -623,9 +649,6 @@ begin
 	Linit = normL(3Lmin);
 end;
 
-# ╔═╡ b4e9b12c-783c-11eb-2311-5d764eb554bb
-normL.([7e-7 9e-7 7e-7 3e-7])
-
 # ╔═╡ a8351c5a-7765-11eb-06c3-4d1f79b686df
 md"""
 Boundaries and initial condition:
@@ -633,24 +656,29 @@ Boundaries and initial condition:
 
 # ╔═╡ 9c6b3eea-7765-11eb-1bd4-59a0ab8af5d3
 begin
-    lower = [0.0, 0.0, 0.0, 0.0, 5.0, 0.06, 0.06, 0.06];
-    upper = [1.0, 1.0, 1.0, 1.0, 25.0, 0.6, 0.6, 0.6];
-    gInitial = [0.6, 0.8, 0.6, 0.2, 20.0, 0.2, 0.1, 0.1];
-    fInitial = [0.2, 0.2, 0.2, 0.2, 15.0, 0.2, 0.2, 0.2];
+    lower = zeros(3);
+    upper = ones(3);
+	init = rand(3);
+	
     
     #optimAlgorithm = ConjugateGradient();
     optimAlgorithm = GradientDescent();
+	#optimAlgorithm = Newton();
     #optimAlgorithm = GradientDescent(linesearch=LineSearches.BackTracking(order=2));
     #optimAlgorithm = LBFGS();
+	
     optimOptions = Optim.Options( g_tol = 1e-3
                                 , x_tol = 1e-3
                                 , f_tol = 1e-3
-                                , time_limit = 25.0 ); 
+                                , time_limit = 25.0 );
+	
+	vdsat12Fix = vdsat34Fix = vdsat78Fix = vdsat90Fix = 0.2;
+	gmid12Fix = gmid34Fix = gmid78Fix = gmid90Fix = 0.2;
 end;
 
 # ╔═╡ 08f2dda2-7752-11eb-2000-95f26e32ed60
 begin
-    A0dBtarget = 50.0;
+    A0dBtarget = 45.0;
 
 md"""
 **Objectvie Gain:** $A_{0,target} =$ $(formatted(A0dBtarget, :ENG; ndigits = 3)) dB
@@ -659,16 +687,17 @@ end
 
 # ╔═╡ b310ed0a-7767-11eb-3380-e10c44018165
 function symampGainObjective(X)
-    #A0dB, f0 = symamp(X...);
-    gL12′, gL34′, gL78′, gL90′, gGmid12, gVdsat34, gVdsat78, gVdsat90 = X;
-    gL12, gL34, gL78, gL90 = realL.([gL12′, gL34′, gL78′, gL90′]);
-    gA0dB, _ = symamp(gL12, gL34, gL78, gL90, gGmid12, gVdsat34, gVdsat78, gVdsat90);
-    loss = abs( gA0dB - A0dBtarget )
+	L12, L34, L78 = realL.(X);
+    
+    A0dB, _ = symamp( L12, L34, L78, L90
+					, gmid12Fix, vdsat34Fix, vdsat78Fix, vdsat90Fix);
+    loss = abs(A0dB - A0dBtarget)
+	
     return loss
 end;
 
 # ╔═╡ 19154a02-7750-11eb-0165-1f6bef4d70ea
-gainResults = optimize( symampGainObjective, lower, upper, gInitial
+gainResults = optimize( symampGainObjective, lower, upper, init
                       , Fminbox(optimAlgorithm), optimOptions)
 
 # ╔═╡ 671d8e50-7765-11eb-1b2b-f1d37f61b068
@@ -682,46 +711,45 @@ end
 
 # ╔═╡ 899dec4c-774f-11eb-1c6e-01c49eacb865
 function symampBWObjective(X)
-    L12′, L34′, L78′, L90′, gmid12, vdsat34, vdsat78, vdsat90 = X;
-    L12, L34, L78, L90 = realL.([L12′, L34′, L78′, L90′]);
-    _, f0, _ = symamp(L12, L34, L78, L90, gmid12, vdsat34, vdsat78, vdsat90);
-    loss = sqrt(abs( f0 - f0target ))
+	L12, L34, L78 = realL.(X);
+	
+    _, f0, _ = symamp( L12, L34, L78, L90
+					 , gmid12Fix, vdsat34Fix, vdsat78Fix, vdsat90Fix);
+    loss = sqrt(abs(f0 - f0target))
+	
     return loss
 end;
 
 # ╔═╡ 3af0e86c-7766-11eb-2499-77082a798dbb
-bwResults = optimize( symampBWObjective, lower, upper, fInitial
+bwResults = optimize( symampBWObjective, lower, upper, init
                     , Fminbox(optimAlgorithm), optimOptions)
 
 # ╔═╡ 17ccd0fe-783c-11eb-14e2-bf3afe3f5edb
 begin
-    gainSolution = gainResults.minimizer;
-    gL12′, gL34′, gL78′, gL90′, gGmid12, gVdsat34, gVdsat78, gVdsat90 = gainSolution;
-    gL12, gL34, gL78, gL90 = realL.([gL12′, gL34′, gL78′, gL90′]);
+    gL12, gL34, gL78 = realL.(gainResults.minimizer);
 
-    gSizing = symamp( gL12, gL34, gL78, gL90
-                   , gGmid12, gVdsat34, gVdsat78, gVdsat90 );
+    gSizing = symamp( gL12, gL34, gL78, L90
+                   , gmid12Fix, vdsat34Fix, vdsat78Fix, vdsat90Fix );
     gA0dB, gf0, gW12, gW34, gW56, gW78, gW9, gW0 = gSizing;
 
 end;
 
 # ╔═╡ 480bfa84-775f-11eb-3d26-ffab3de5f965
 begin
-    bwSolution = bwResults.minimizer;
-    fL12′, fL34′, fL78′, fL90′, fGmid12, fVdsat34, fVdsat78, fVdsat90 = bwSolution;
-    fL12, fL34, fL78, fL90 = realL.([fL12′, fL34′, fL78′, fL90′]);
+    fL12, fL34, fL78 = realL.(bwResults.minimizer);
 
-    fSizing = symamp( fL12, fL34, fL78, fL90
-                   , fGmid12, fVdsat34, fVdsat78, fVdsat90 );
+    fSizing = symamp( fL12, fL34, fL78, L90
+                   , gmid12Fix, vdsat34Fix, vdsat78Fix, vdsat90Fix );
     fA0dB, ff0, fW12, fW34, fW56, fW78, fW9, fW0 = fSizing;
 end;
 
 # ╔═╡ 4bcb1c1a-7762-11eb-1518-cf9f3d0e13dd
 begin
-    SgA0dB = 54.53211;
-    Sgf0 = 7.32172e4;
+    SgA0dB = 4.597800e+01;
+    Sgf0 = 5.570337e+04;
     SfA0dB = 39.04051;
     Sff0 = 1.479150e5;
+
 
 md"""
 #### Results
@@ -733,7 +761,7 @@ md"""
 | L1, L2 | $(formatted(gL12, :ENG; ndigits = 4)) m | $(formatted(fL12, :ENG; ndigits = 4)) m |
 | L3, L4, L5, L6   | $(formatted(gL34, :ENG; ndigits = 4)) m | $(formatted(fL34, :ENG; ndigits = 4)) m |
 | L7, L8 | $(formatted(gL78, :ENG; ndigits = 4)) m | $(formatted(fL78, :ENG; ndigits = 4)) m |
-| L9, L0 | $(formatted(gL78, :ENG; ndigits = 4)) m | $(formatted(fL78, :ENG; ndigits = 4)) m |
+| L9, L0 | $(formatted(L90, :ENG; ndigits = 4)) m | $(formatted(L90, :ENG; ndigits = 4)) m |
 | W1, W2 | $(formatted(gW12, :ENG; ndigits = 4)) m | $(formatted(fW12, :ENG; ndigits = 4)) m |
 | W3, W4 | $(formatted(gW34, :ENG; ndigits = 4)) m | $(formatted(fW34, :ENG; ndigits = 4)) m |
 | W5, W6 | $(formatted(gW56, :ENG; ndigits = 4)) m | $(formatted(fW56, :ENG; ndigits = 4)) m |
@@ -970,7 +998,6 @@ end;
 # ╟─3dbf3974-54fa-11eb-1901-c310b0dd8685
 # ╟─d3a287be-75d6-11eb-35a4-732cd461df58
 # ╟─98136d66-75d7-11eb-1bbe-159e5f431357
-# ╠═b4e9b12c-783c-11eb-2311-5d764eb554bb
 # ╟─e703b8fc-776e-11eb-19f8-cd6b4888e233
 # ╟─37ee6758-7747-11eb-3055-31b667b966ef
 # ╠═3d6ff8da-7748-11eb-1d9c-ab6c3e3618fa
@@ -991,13 +1018,13 @@ end;
 # ╠═d9bd718a-7668-11eb-3d78-1b1f50ba7227
 # ╟─a8351c5a-7765-11eb-06c3-4d1f79b686df
 # ╠═9c6b3eea-7765-11eb-1bd4-59a0ab8af5d3
-# ╠═08f2dda2-7752-11eb-2000-95f26e32ed60
+# ╟─08f2dda2-7752-11eb-2000-95f26e32ed60
 # ╠═19154a02-7750-11eb-0165-1f6bef4d70ea
 # ╟─671d8e50-7765-11eb-1b2b-f1d37f61b068
 # ╠═3af0e86c-7766-11eb-2499-77082a798dbb
 # ╠═17ccd0fe-783c-11eb-14e2-bf3afe3f5edb
 # ╠═480bfa84-775f-11eb-3d26-ffab3de5f965
-# ╠═4bcb1c1a-7762-11eb-1518-cf9f3d0e13dd
+# ╟─4bcb1c1a-7762-11eb-1518-cf9f3d0e13dd
 # ╟─6c83900a-76b2-11eb-30f1-07ef0afeaf98
 # ╠═aaf3d4a8-76b2-11eb-001f-c563037c0b4c
 # ╠═02e9348e-76a7-11eb-0749-b18ec7721cd3

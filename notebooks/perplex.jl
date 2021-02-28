@@ -259,11 +259,30 @@ end;
 # ╔═╡ bc3a4716-5cd0-11eb-1939-91291bfdf530
 begin
     simSample = simData[ StatsBase.sample( MersenneTwister(666)
-                                         , 1:(simData |> size |> first)
-                                         , pweights(simData.id)
-                                         , 666666
-                                         ; replace = false )
-                       , : ];
+                                        , 1:(simData |> size |> first)
+                                        , pweights(simData.gds)
+                                        , 666666
+                                        ; replace = false )
+                      , : ];
+
+# sdf = simData[ simData.Vds .>= (simData.Vgs .- simData.vth), :];
+# sSamp = sdf[ StatsBase.sample( MersenneTwister(666)
+#                              , 1:size(sdf, 1)
+#                              , StatsBase.pweights(sdf.gds)
+#                              , 333333
+#                              ; replace = false
+#                              , ordered = false )
+#            , : ];
+# tdf = simData[ simData.Vds .<= (simData.Vgs .- simData.vth), :];
+# tSamp = tdf[ StatsBase.sample( MersenneTwister(666)
+#                              , 1:size(tdf, 1)
+#                              #, StatsBase.pweights(tdf.id)
+#                              , 333333
+#                              ; replace = false
+#                              , ordered = false )
+#            , : ];
+# simSample = shuffleobs(vcat(tSamp, sSamp));
+
     rawSample = simData[ StatsBase.sample( MersenneTwister(666)
                                          , 1:(simData |> size |> first)
                                          , 666666
@@ -299,12 +318,19 @@ begin
     us3Y = us1Y |> adjoint |> usQY.fit_transform |> adjoint;
 end;
 
+# ╔═╡ 463d85f4-79c3-11eb-1bb1-a106a5627d66
+begin
+	gdsIdx = indexin(["gds"], paramsY)[1];
+	gmIdx = indexin(["gm"], paramsY)[1];
+	idIdx = indexin(["id"], paramsY)[1];
+end;
+
 # ╔═╡ 78813f7a-5cd8-11eb-2bea-278bd4f36ec0
-plot( histogram( rs1Y[3,:], legend = false, yaxis = "raw"
+plot( histogram( rs1Y[gmIdx,:], legend = false, yaxis = "raw"
                , title = "Drain Current Distribution" )
-    , histogram( us3Y[3,:], legend = false, yaxis = "qt" ) 
-    , histogram( us1Y[3,:], legend = false, yaxis = "weighted" )
-	, histogram( us2Y[3,:], legend = false, yaxis = "bct" )
+    , histogram( us3Y[gmIdx,:], legend = false, yaxis = "qt" ) 
+    , histogram( us1Y[gmIdx,:], legend = false, yaxis = "weighted" )
+	, histogram( us2Y[gmIdx,:], legend = false, yaxis = "bct" )
     ; layout = (4,1) )
 #plot( histogram( us1Y[1,:], legend = false, title = "raw", yaxis = "vth")
 #	, histogram( us2Y[1,:], legend = false, title = "bct")
@@ -436,7 +462,7 @@ md"""
 
 # ╔═╡ c41d0f00-74f1-11eb-25bb-d58ae55f94e4
 begin	
-    νmodelFile = "../model/current/l-vdsat-nmos90.bson"
+    νmodelFile = "../model/current/l-gmid-nmos90.bson"
     νmodel     = BSON.load(νmodelFile);
     ν          = νmodel[:model];
     νparamsX   = νmodel[:paramsX];
@@ -450,7 +476,6 @@ begin
     νλ         = νmodel[:lambda];
 
     function νpredict(X)
-        idxJd = first(indexin(["Jd"], String.(νparamsY)));
         X[νmaskBCX,:] = bc.(abs.(X[νmaskBCX,:]); λ = νλ);
         X′ = StatsBase.transform(νutX, X);
         Y′ = ν(X′);
@@ -486,23 +511,36 @@ begin
 	cdL = dd[(dd.L .== scL), : ];
     cdL.EVds = exp.(cdL.Vds);
     cdL.RVbs = sqrt.(abs.(cdL.Vbs));
+	cdL.gmid = cdL.gm ./ cdL.id;
 
-	sort!(cdL, [:vdsat]);
+	sort!(cdL, [:gmid]);
     cLen = size(cdL, 1);
-    cvdsat = cdL.vdsat;
+    cvgmid = cdL.gmid;
     cIdW = cdL.idw;
+	cA0 = cdL.a0;
+
     cdL.id = fill(scId, cLen);
     
     cX = Matrix(cdL[1:cStep:end,νparamsX])';
     cY = νpredict(cX);
-    cJd = CubicSpline(Vector(cY.Jd), cdL.vdsat[1:cStep:end]);
-    cVg = CubicSpline(Vector(cY.Vgs), cdL.vdsat[1:cStep:end]);
-    cVeg = CubicSpline(Vector(cY.Veg), cdL.vdsat[1:cStep:end]);
+    cJd = CubicSpline(Vector(cY.Jd), cdL.gmid[1:cStep:end]);
+    cVg = CubicSpline(Vector(cY.Vgs), cdL.gmid[1:cStep:end]);
+	cgds = CubicSpline(Vector(cY.gds), cdL.gmid[1:cStep:end]);
+	cgm = CubicSpline(Vector(cY.gm), cdL.gmid[1:cStep:end]);
+	ca0 = CubicSpline(Vector(cY.A0), cdL.gmid[1:cStep:end]);
+    cVeg = CubicSpline(Vector(cY.Veg), cdL.gmid[1:cStep:end]);
 end;
 
-# ╔═╡ 8c903ee2-7690-11eb-3613-1ba636d404f5
+# ╔═╡ f0f01ea8-768a-11eb-1601-5164f5993457
 begin
-    cW = 1 / (cJd(0.2) / scId )
+	pjd = plot(cvgmid, cdL.gm; label = "True", xaxis = "gmid", yaxis = "gds", w = 2);
+	#pjd = plot!(cgm; label = "pred gm", w = 2);
+	#pjd = plot!( cgds; label = "pred gds", w = 2);
+	#pjd = plot!(cgm ./ cgds; label = "pred gm / gds", w = 2);
+    pjd = plot!( cgm; label = "Pred", w = 2
+               , legend = :topleft#, yscale = :log10
+               , title = "L = $(scL) and Id = $(scId)" );
+
 end
 
 # ╔═╡ a5d08dae-768a-11eb-1965-f3a93fe4faa9
@@ -529,20 +567,6 @@ begin
     νjd = CubicSpline(Vector(νpredict(νX).Jd), ddL.vdsat[1:νStep:end]);
     ∂jd′∂vdsat = [ first(Zygote.gradient(νjd, vdsat)) for vdsat in ddL.vdsat];
 end;
-
-# ╔═╡ f0f01ea8-768a-11eb-1601-5164f5993457
-begin
-    pvg = plot(cvdsat, ddL.Vgs; label = "True Vgs", xaxis = "vdsat", yaxis = "Vgs", w = 2);
-    pvg = plot!(cVg; label = "Pred Vgs", w = 2);
-    pvg = hline!(dd.Vds, w = 2)
-    pvg = vline!([0.2], w = 2)
-
-	pjd = plot(cvdsat, cIdW; label = "True Jd", xaxis = "vdsat", yaxis = "Jd", w = 2);
-    pjd = plot!(cJd; label = "Pred Jd", w = 2
-               , legend = :topleft, yscale = :log10
-               , title = "L = $(scL) and Id = $(scId)" );
-    plot(pvg, pjd)
-end
 
 # ╔═╡ f9a4397e-5a80-11eb-3843-2db5c69de322
 begin
@@ -603,7 +627,8 @@ end
 # ╠═3f07f502-5cc8-11eb-33ac-83920c977746
 # ╠═bc3a4716-5cd0-11eb-1939-91291bfdf530
 # ╠═bceea132-5cd7-11eb-14ef-e70cad73f65f
-# ╟─78813f7a-5cd8-11eb-2bea-278bd4f36ec0
+# ╠═463d85f4-79c3-11eb-1bb1-a106a5627d66
+# ╠═78813f7a-5cd8-11eb-2bea-278bd4f36ec0
 # ╠═297b36fc-616b-11eb-37d9-2d761bb2e287
 # ╟─5ba2fb94-5985-11eb-1710-932d14cb2c51
 # ╠═19e00e34-55b8-11eb-2ecd-3398e288598a
@@ -615,7 +640,6 @@ end
 # ╠═2cb7c2ec-768b-11eb-3c35-3fe8a77946a0
 # ╠═f0f01ea8-768a-11eb-1601-5164f5993457
 # ╟─38182976-768e-11eb-3a4e-13f129525ad2
-# ╠═8c903ee2-7690-11eb-3613-1ba636d404f5
 # ╟─a5d08dae-768a-11eb-1965-f3a93fe4faa9
 # ╠═faad964e-5a7b-11eb-30e5-7552e886738c
 # ╠═f9a4397e-5a80-11eb-3843-2db5c69de322

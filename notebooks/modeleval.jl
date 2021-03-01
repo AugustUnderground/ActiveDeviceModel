@@ -401,14 +401,10 @@ to obtain sizing for $NM_{\text{cm,41}}$ and $NM_{\text{cm,42}}$.
 
 # ╔═╡ 3d6ff8da-7748-11eb-1d9c-ab6c3e3618fa
 begin
-    #I68 = ((K * M) / 2 ) * Iref;
-	I68 = 46e-6;
+    I68 = ((K * M) / 2 ) * Iref;
     MN8 = νₙ(L78, I68, vdsat78, Vocm, 0.0);
     Vgs8, Jd8, gds8 = Matrix(MN8[:,[:Vgs, :Jd, :gds]]);
     W78 = I68 / Jd8;
-	
-	#OP8 = φₙ(Vgs8, Vocm, 0.0, W78, L78)
-	#gds8, gm8 = Matrix(OP8[:,[:gds, :gm]]);
 	
     Vd = Vgs8;
 end;
@@ -429,12 +425,9 @@ as well as $PM_{\text{cm,31}}$ and $PM_{\text{cm,32}}$.
 begin
     MP6 = νₚ(L34, I68, vdsat34, (VDD - Vocm), 0.0);
     Vgs6, Jd6, gds6 = Matrix(MP6[:,[:Vgs, :Jd, :gds]]);
-    W65 = I68 / Jd6;
-    W34 = W65 / M;
+    W34 = (I68 / Jd6) / M
+    W65 = (W34 * M) + ((W34) / 10.0);
     Vb = Vc = (VDD - Vgs6);
-    
-	#OP6 = φₚ(Vgs6, (VDD - Vocm), 0.0, W65, L34)
-	#gds6, gm6 = Matrix(OP6[:,[:gds, :gm]]);
 	
     #I34 = I68 / M;
     #MP4 = νₚ(L34, I34, vdsat34, (VDD - Vb), 0.0);
@@ -463,9 +456,6 @@ begin
 
     Vgs1, Jd1, gm1 = Matrix(MN1[:,[:Vgs, :Jd, :gm]]);
     W12 = I12 / Jd1;
-	
-	#OP1 = φₙ((Vicm - Va), (Vc - Va), -Va, W12, L12)
-	#gds1, gm1 = Matrix(OP1[:,[:gds, :gm]]);
 end;
 
 # ╔═╡ 2a7c0dba-7749-11eb-20cd-210ab922d0af
@@ -486,8 +476,8 @@ begin
     I90 = K * Iref;
     MN9 = νₙ(L90, I90, vdsat90, Va, 0.0);
     W9, Vgs9, Jd9 = Matrix(MN9[:,[:W, :Vgs, :Jd]]);
-    W9 = I90 / Jd9;
-    W0 = W9 / K;
+    W0 = (I90 / Jd9) / K;
+    W9 = (W0 * K) + ((W0 * K) / 10.0);
 end;
 
 # ╔═╡ 7d0392d8-7746-11eb-34a8-3508ea7402cd
@@ -594,30 +584,34 @@ or interactively, it can be *abused* with an optimizer.
 # ╔═╡ b4e1b330-774e-11eb-2e19-61f86b046c52
 function symamp(L12, L34, L78, L90, gmid12, vdsat34, vdsat78, vdsat90)
     I68 = ((K * M) / 2 ) * Iref;
+
     MN8 = νₙ(L78, I68, vdsat78, Vocm, 0.0);
-    W78, gds8, Vgs8, Jd8 = Matrix(MN8[:,[:W, :gds, :Vgs, :Jd]]);
-    #W78 = I68 / Jd8;
+    gds8, Vgs8, Jd8 = Matrix(MN8[:,[:gds, :Vgs, :Jd]]);
+    W78 = I68 / Jd8;
+
     Vd = Vgs8;
 	
     MP6 = νₚ(L34, I68, vdsat34, Vocm, 0.0);
-    W56, gds6, Vgs6, Jd6 = Matrix(MP6[:,[:W, :gds, :Vgs, :Jd]]);
-    #W56 = I68 / Jd6;
-    W34 = W56 / M;
+    gds6, Vgs6, Jd6 = Matrix(MP6[:,[:gds, :Vgs, :Jd]]);
+    W34 = (I68 / Jd6) / M
+    W56 = (W34 * M) + ((W34) / 10.0);
+
     Vb = Vc = (VDD - Vgs6);
     I12 = (K / 2) * Iref;
-    Va = Vc / 2;
+    Va = Vc / 3;
 	
     MN1 = γₙ(L12, I12, gmid12, (Vb - Va), -Va);
     #MN1 = νₙ(L12, I12, vdsat12, VDD/3, 0.0);
     #MN1 = γₙ(L12, I12, gmid12, Va, 0.0);
-    W12, gm1, Jd1 = Matrix(MN1[:,[:W, :gm, :Jd]]);
-    #W12 = I12 / Jd1;
+    gm1, Jd1 = Matrix(MN1[:,[:gm, :Jd]]);
+    W12 = I12 / Jd1;
 	
     I90 = K * Iref;
+
     MN9 = νₙ(L90, I90, vdsat90, Va, 0.0);
-    W9, Vgs9, Jd9 = Matrix(MN9[:,[:W, :Vgs, :Jd]]);
-    #W9 = I90 / Jd9;
-    W0 = W9 / K;
+    Vgs9, Jd9 = Matrix(MN9[:,[:Vgs, :Jd]]);
+    W0 = (I90 / Jd9) / K;
+    W9 = (W0 * K) + ((W0 * K) / 10.0);
 	
     rout = 1 / (gds6 + gds8);
     A₀ = M * gm1 * rout ;
@@ -626,8 +620,6 @@ function symamp(L12, L34, L78, L90, gmid12, vdsat34, vdsat78, vdsat90)
     f₀ = 1 / (2π * CL * rout);
     return [A₀dB, f₀, W12, W34, W56, W78, W9, W0]
 end;
-
-
 
 # ╔═╡ 1980a07a-7752-11eb-22d2-31964e897bfc
 md"""
@@ -667,18 +659,21 @@ begin
     #optimAlgorithm = GradientDescent(linesearch=LineSearches.BackTracking(order=2));
     #optimAlgorithm = LBFGS();
 	
-    optimOptions = Optim.Options( g_tol = 1e-3
-                                , x_tol = 1e-3
-                                , f_tol = 1e-3
+    optimOptions = Optim.Options( g_tol = 1e-8
+                                , x_tol = 1e-8
+                                , f_tol = 1e-8
                                 , time_limit = 25.0 );
 	
-	vdsat12Fix = vdsat34Fix = vdsat78Fix = vdsat90Fix = 0.2;
-	gmid12Fix = gmid34Fix = gmid78Fix = gmid90Fix = 0.2;
+	vdsat12Fix = vdsat34Fix = vdsat78Fix = 0.2;
+	vdsat90Fix = 0.11;
+	gmid12Fix = gmid34Fix = gmid78Fix = gmid90Fix = 15;
+    
+    L90Fix = 700e-9;
 end;
 
 # ╔═╡ 08f2dda2-7752-11eb-2000-95f26e32ed60
 begin
-    A0dBtarget = 45.0;
+    A0dBtarget = 50.0;
 
 md"""
 **Objectvie Gain:** $A_{0,target} =$ $(formatted(A0dBtarget, :ENG; ndigits = 3)) dB
@@ -687,9 +682,9 @@ end
 
 # ╔═╡ b310ed0a-7767-11eb-3380-e10c44018165
 function symampGainObjective(X)
-	L12, L34, L78 = realL.(X);
+	L12D, L34D, L78D = realL.(X);
     
-    A0dB, _ = symamp( L12, L34, L78, L90
+    A0dB, _ = symamp( L12D, L34D, L78D, L90Fix
 					, gmid12Fix, vdsat34Fix, vdsat78Fix, vdsat90Fix);
     loss = abs(A0dB - A0dBtarget)
 	
@@ -702,7 +697,7 @@ gainResults = optimize( symampGainObjective, lower, upper, init
 
 # ╔═╡ 671d8e50-7765-11eb-1b2b-f1d37f61b068
 begin
-    f0target = 150e3;
+    f0target = 65e3;
 
 md"""
 **Objectvie Bandwidth:** $f_{0,target} =$ $(formatted(f0target, :ENG; ndigits = 3)) Hz
@@ -711,11 +706,12 @@ end
 
 # ╔═╡ 899dec4c-774f-11eb-1c6e-01c49eacb865
 function symampBWObjective(X)
-	L12, L34, L78 = realL.(X);
+	L12D, L34D, L78D = realL.(X);
 	
-    _, f0, _ = symamp( L12, L34, L78, L90
+    _, f0, _ = symamp( L12D, L34D, L78D, L90Fix
 					 , gmid12Fix, vdsat34Fix, vdsat78Fix, vdsat90Fix);
-    loss = sqrt(abs(f0 - f0target))
+	
+    loss = abs(f0 - f0target)
 	
     return loss
 end;
@@ -1020,7 +1016,7 @@ end;
 # ╠═9c6b3eea-7765-11eb-1bd4-59a0ab8af5d3
 # ╟─08f2dda2-7752-11eb-2000-95f26e32ed60
 # ╠═19154a02-7750-11eb-0165-1f6bef4d70ea
-# ╟─671d8e50-7765-11eb-1b2b-f1d37f61b068
+# ╠═671d8e50-7765-11eb-1b2b-f1d37f61b068
 # ╠═3af0e86c-7766-11eb-2499-77082a798dbb
 # ╠═17ccd0fe-783c-11eb-14e2-bf3afe3f5edb
 # ╠═480bfa84-775f-11eb-3d26-ffab3de5f965

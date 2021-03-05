@@ -23,14 +23,14 @@ using Chain
 ######################
 
 # File System
-paramName   = "L-gmid";
-deviceName  = "ptmp90";
+paramName   = "L-vdsat";
+deviceName  = "ptmp45";
 deviceType  = :p;
 timeStamp   = string(Dates.now());
 modelDir    = "./model/$(paramName)-$(deviceName)-$(timeStamp)";
 dataDir     = "../data";
 mosFile     = "$(dataDir)/$(deviceName).jld";
-modelFile   = "$(modelDir)/$(deviceName).bson";
+modelFile   = "$(modelDir)/$(paramName)-$(deviceName).bson";
 Base.Filesystem.mkdir(modelDir);
 
 # Don't allow scalar operations on GPU
@@ -63,10 +63,9 @@ dataFrame.gmid  = dataFrame.gm ./ dataFrame.id;
 dataFrame.A0    = dataFrame.gm ./ dataFrame.gds;
 dataFrame.Jd    = dataFrame.id ./ dataFrame.W;
 dataFrame.Veg   = dataFrame.Vgs .- dataFrame.vth;
-
-#dataFrame.A0Log =  log10.(dataFrame.gm ./ dataFrame.gds);
-#dataFrame.idWLog = log10.(dataFrame.id ./ dataFrame.W);
-#dataFrame.fugLog = log10.(dataFrame.fug);
+dataFrame.Lgm   = log10.(dataFrame.gm);
+dataFrame.Lgds  = log10.(dataFrame.gds);
+dataFrame.Lid   = log10.(dataFrame.id);
 
 mask = @chain dataFrame begin
             (isinf.(_) .| isnan.(_))
@@ -78,25 +77,32 @@ mask = @chain dataFrame begin
        end;
 mdf = dataFrame[mask, : ];
 
-# Define Features and Outputs
-paramsX = [ "L", "id", "gmid", "Vds", "EVds", "Vbs", "RVbs" ]; 
-paramsY = [ "W", "gm", "gds", "Vgs", "QVgs", "fug", "Jd", "A0", "vth" ]; 
-# Box-Cox Transformation Mask
-maskBCX = paramsX .∈([ "id", "gmid" ],);
-maskBCY = paramsY .∈([ "gm", "gds", "fug", "Jd", "A0" ],);
-
-### GOOD STUFF (vdsat) #####
-#paramsX = [ "L", "id", "vdsat", "Vds", "EVds", "Vbs", "RVbs" ]; 
-#paramsY = [ "W", "gm", "gmid", "fug", "gds", "Vgs", "QVgs", "Veg", "Jd", "A0" ]; 
-#maskBCX = paramsX .∈([ "id" ],);
-#maskBCY = paramsY .∈([ "gm", "gmid", "gds", "fug", "Jd", "A0"],);
+### GOOD STUFF (L,vdsat) #####
+paramsX = [ "L", "vdsat", "id", "Vds", "Vbs" ]; 
+paramsY = [ "fug", "gmid", "gm", "gds", "Vgs", "Jd", "vth" ]; 
+maskBCX = paramsX .∈([ "id" ],);
+maskBCY = paramsY .∈([ "fug", "gmid", "gm", "gds", "Jd" ],);
 ###################
 
-### GOOD STUFF (gmid) #####
-#paramsX = [ "L", "id", "gmid", "Vds", "EVds", "Vbs", "RVbs" ]; 
-#paramsY = [ "W", "gm", "vdsat", "fug", "gds", "Vgs", "QVgs", "Veg", "Jd", "A0" ]; 
-#maskBCX = paramsX .∈([ "id", "gmid" ],);
-#maskBCY = paramsY .∈([ "gm", "gds", "fug", "Jd", "A0"],);
+### GOOD STUFF (L,gmid) #####
+#paramsX = [ "L", "gmid", "id", "Vds", "Vbs" ]; 
+#paramsY = [ "fug", "vdsat", "gm", "gds", "Vgs", "Jd", "vth" ]; 
+#maskBCX = paramsX .∈([ "gmid", "id" ],);
+#maskBCY = paramsY .∈([ "fug", "gm", "gds", "Jd" ],);
+###################
+
+### GOOD STUFF (fug,vdsat) #####
+#paramsX = [ "fug", "vdsat", "id", "Vds", "Vbs" ]; 
+#paramsY = [ "L", "gmid", "gm", "gds", "Vgs", "Jd", "vth" ]; 
+#maskBCX = paramsX .∈([ "fug", "id" ],);
+#maskBCY = paramsY .∈([ "gm", "gmid", "gds", "Jd" ],);
+###################
+
+### GOOD STUFF (fug,gmid) #####
+#paramsX = [ "fug", "gmid", "id", "Vds", "Vbs" ]; 
+#paramsY = [ "L", "vdsat", "gm", "gds", "Vgs", "Jd", "vth" ]; 
+#maskBCX = paramsX .∈([ "fug", "gmid", "id" ],);
+#maskBCY = paramsY .∈([ "gm", "gds", "Jd" ],);
 ###################
 
 # Number of In- and Outputs, for respective NN Layers
@@ -105,57 +111,47 @@ numY = length(paramsY);
 
 ## Sample Data for appropriate distribution
 
+# Random Uniform with Probability Weights on gds
+#df = mdf[ StatsBase.sample( MersenneTwister(rngSeed)
+#                          , 1:size(mdf, 1)
+#                          , StatsBase.pweights(mdf.gds)
+#                          , 4000000
+#                          ; replace = false
+#                          , ordered = false )
+#        , : ];
+
 # When VGS > Vth and VDS ≥ (VGS – Vth):
-sdf = mdf[ ifelse( deviceType == :n
-                 , ( ( mdf.Vds .>= (mdf.Vgs .- mdf.vth) ) .& ( mdf.Vgs .> mdf.vth) )
-                 , ( ( mdf.Vds .<= (mdf.Vgs .+ mdf.vth) ) .& ( mdf.Vgs .> mdf.vth) ) )
-         , :];
-df = sdf[ StatsBase.sample( MersenneTwister(rngSeed)
-                          , 1:size(sdf, 1)
-                          #, StatsBase.pweights(sdf.gds)
-                          , 4000000
-                          ; replace = false
-                          , ordered = false )
-        , : ];
+satMask = ((mdf.Vds .>= (mdf.Vgs .- mdf.vth)) .& (mdf.Vgs .> mdf.vth));
 
-#L = rand(filter(l -> l < 1.0e-6, unique(mdf.L)));
-#W = rand(filter(w -> w < 2.0e-6, unique(mdf.W)));
-#trace = sort( df[ ( (df.L .== L)
-#                 .& (df.W .== W)
-#                 .& (round.(df.Vbs; digits = 2) .== 0.0)
-#                 .& (round.(df.Vds; digits = 2) .== 0.6) )
-#                , : ]
-#             , ["vdsat", "gm", "gds" ] )
-#
-#plot(trace.vdsat, trace.gm)
-
-## Sample 3/4ths of Data in Saturation Region with probability weighted Id
+# Sample 3/4ths of Data in Saturation Region with probability weighted Id
 #sdf = mdf[ ifelse( deviceType == :n
 #                 , mdf.Vds .>= (mdf.Vgs .- mdf.vth) 
 #                 , mdf.Vds .<= (mdf.Vgs .+ mdf.vth) ) 
 #         , :];
-#sSamp = sdf[ StatsBase.sample( MersenneTwister(rngSeed)
-#                             , 1:size(sdf, 1)
-#                             #, StatsBase.pweights(sdf.id)
-#                             , StatsBase.pweights(sdf.gds)
-#                             , 3000000
-#                             ; replace = false
-#                             , ordered = false )
-#           , : ];
-## Sample 1/3rd of Data in Triode Region without weights
+sdf = mdf[satMask, : ];
+sSamp = sdf[ StatsBase.sample( MersenneTwister(rngSeed)
+                             , 1:size(sdf, 1)
+                             , StatsBase.pweights(sdf.gds)
+                             , 3000000
+                             ; replace = false
+                             , ordered = false )
+           , : ];
+# Sample 1/3rd of Data in Triode Region without weights
 #tdf = mdf[ ifelse( deviceType == :n
 #                 , mdf.Vds .<= (mdf.Vgs .- mdf.vth) 
 #                 , mdf.Vds .>= (mdf.Vgs .+ mdf.vth) ) 
 #         , :];
-#tSamp = tdf[ StatsBase.sample( MersenneTwister(rngSeed)
-#                             , 1:size(tdf, 1)
-#                             #, StatsBase.pweights(tdf.gds)
-#                             , 1000000
-#                             ; replace = false
-#                             , ordered = false )
-#           , : ];
-## Join samples and shuffle all observations
-#df = shuffleobs(vcat(tSamp, sSamp));
+#tdf = mdf[((mdf.Vds .>= (mdf.Vgs .- mdf.vth)) .& (mdf.Vgs .> mdf.vth)), : ];
+tdf = mdf[.!satMask, : ];
+tSamp = tdf[ StatsBase.sample( MersenneTwister(rngSeed)
+                             , 1:size(tdf, 1)
+                             , StatsBase.pweights(tdf.gds)
+                             , 1000000
+                             ; replace = false
+                             , ordered = false )
+           , : ];
+# Join samples and shuffle all observations
+df = shuffleobs(vcat(tSamp, sSamp));
 
 # Convert to Matrix for Flux
 rawX = Matrix(df[ : , paramsX ])';
@@ -191,7 +187,7 @@ validSet = Flux.Data.DataLoader( (validX, validY)
 ## Model
 ######################
 
-# Neural Network
+# Neural Network Architecture
 γ = Flux.Chain( Flux.Dense(numX,  128,    Flux.relu)
               , Flux.Dense(128,   256,    Flux.relu) 
               , Flux.Dense(256,   512,    Flux.relu) 
@@ -285,7 +281,7 @@ plot( 1:numEpochs, losses; lab = ["MSE" "MAE"]
     , w = 2 )
 
 ## Use Current model ##
-γ = γ |> cpu;
+#γ = γ |> cpu;
 
 ## Load specific model ##
 #modelFile = "./model/vdsat-ptmn90-2021-02-22T14:14:31.445/ptmn90.bson"
@@ -302,29 +298,27 @@ param   = model[:parameter];
 device  = model[:name];
 
 ## Reload DB ##########
-dataFrame = jldopen("../data/$(device).jld", "r") do file
-    file["database"];
-end;
-dataFrame.QVgs = dataFrame.Vgs.^2.0;
-dataFrame.EVds = exp.(dataFrame.Vds);
-dataFrame.RVbs = sqrt.(abs.(dataFrame.Vbs));
-dataFrame.gmid = dataFrame.gm ./ dataFrame.id;
-dataFrame.A0 = dataFrame.gm ./ dataFrame.gds;
-dataFrame.Jd = dataFrame.id ./ dataFrame.W;
-msk = @chain dataFrame begin
-            (isinf.(_) .| isnan.(_))
-            Matrix(_)
-            sum(_ ; dims = 2)
-            (_ .== 0)
-            vec()
-            collect()
-      end;
-mdf = dataFrame[msk, : ];
-
-boxCox(yᵢ; λ = 0.2) = λ != 0 ? (((yᵢ.^λ) .- 1) ./ λ) : log.(yᵢ);
-coxBox(y′; λ = 0.2) = λ != 0 ? exp.(log.((λ .* y′) .+ 1) / λ) : exp.(y′);
-
-inspectdr();
+#dataFrame = jldopen("../data/$(device).jld", "r") do file
+#    file["database"];
+#end;
+#dataFrame.QVgs = dataFrame.Vgs.^2.0;
+#dataFrame.EVds = exp.(dataFrame.Vds);
+#dataFrame.RVbs = sqrt.(abs.(dataFrame.Vbs));
+#dataFrame.gmid = dataFrame.gm ./ dataFrame.id;
+#dataFrame.A0 = dataFrame.gm ./ dataFrame.gds;
+#dataFrame.Jd = dataFrame.id ./ dataFrame.W;
+#msk = @chain dataFrame begin
+#            (isinf.(_) .| isnan.(_))
+#            Matrix(_)
+#            sum(_ ; dims = 2)
+#            (_ .== 0)
+#            vec()
+#            collect()
+#      end;
+#mdf = dataFrame[msk, : ];
+#boxCox(yᵢ; λ = 0.2) = λ != 0 ? (((yᵢ.^λ) .- 1) ./ λ) : log.(yᵢ);
+#coxBox(y′; λ = 0.2) = λ != 0 ? exp.(log.((λ .* y′) .+ 1) / λ) : exp.(y′);
+#inspectdr();
 ########################
 
 mdf.Vgs = round.(mdf.Vgs, digits = 2);
@@ -344,36 +338,40 @@ end;
 
 L = rand(filter(l -> l < 1.0e-6, unique(mdf.L)));
 W = rand(filter(w -> w < 2.0e-6, unique(mdf.W)));
-Id = 20e-6;
+
+fugs =  exp10.(range(8, stop = 10, length = 10));
+
+Id = 10e-6;
 Vbs = 0.0;
 Vds = 0.6;
 
-param = split(param, "-")[2];
+param1,param2 = split(param, "-");
 
 traceT = sort( mdf[ ( (mdf[:,"L"] .== L)
                    .& (mdf[:,"W"] .== W)
                    .& (mdf[:,"Vbs"] .== Vbs)
                    .& (mdf[:,"Vds"] .== Vds) )
                   , : ]
-             , [param, "gm", "gds" ] );
+             , [param2] );
 
-len = length(traceT[:,param]);
+len = length(traceT[:,param2]);
 
-l = traceT[:,"L"];
-id = fill(Id, len);
-#id = traceT.id;
-para = traceT[:,param];
+p1 = traceT[:,param1];
+p2 = traceT[:,param2];
+#id = fill(Id, len);
+id = traceT.id;
+lid = log10.(id);
 vds = traceT[:,"Vds"];
 evds = exp.(vds);
 vbs = traceT[:,"Vbs"];
 rvbs = sqrt.(abs.(vbs));
 
-x = [ l id para vds evds vbs rvbs ]';
+x = [ p1 p2 id vds vbs ]';
 y = predict(x);
 
-plot( para, y.Jd; yscale = :log10
-    , lab = "Aprx", w = 2, xaxis = param, yaxis = "id/W" );
-plot!(para, traceT.Jd, yscale = :log10, lab = "True", w = 2)
+plot( p2, y.gds; yscale = :log10
+    , lab = "Aprx", w = 2, xaxis = param);
+plot!(p2, traceT.gds; yscale = :log10, lab = "True", w = 2)
 
 plot( para, y.A0; yscale = :log10
     , lab = "Aprx", w = 2, xaxis = param, yaxis = "gds" );
@@ -391,3 +389,13 @@ plot!(para, traceT.gds; lab = "True", w = 2)
 #plot!(para, traceT.gm ./ traceT.gds; lab = "True", w = 2);
 #plot!(para, y.A0; lab = "Aprx", w = 2);
 #plot!(para, traceT.A0; lab = "True", w = 2)
+
+
+traceO = sort( mdf[ ( (mdf[:,"L"] .== L)
+                   .& (mdf[:,"W"] .== W)
+                   .& (mdf[:,"Vbs"] .== Vbs)
+                   .& (mdf[:,"Vgs"] .== 0.6) )
+                  , : ]
+             , ["Vds" ] );
+
+

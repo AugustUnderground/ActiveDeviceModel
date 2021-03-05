@@ -40,6 +40,7 @@ md"""
 #pyplot();
 #inspectdr();
 plotly();
+#pgfplotsx();
 
 # ╔═╡ db81ef56-75a4-11eb-38cf-3577d332d43f
 md"""
@@ -199,23 +200,29 @@ end
 begin
     #L = rand(1e-7:1e-5);
     #W = rand(1e-6:1e-4);
-    VGD = hcat(vec([[i,j] for i = 0.0:0.01:1.2, j = 0.0:0.01:1.2])...);
-    VGS = VGD[2,:];
-    VDS = VGD[1,:];
+    #VGD = hcat(vec([[i,j] for i = 0.0:0.01:1.2, j = 0.0:0.01:1.2])...);
+    #VGS = VGD[2,:];
+    #VDS = VGD[1,:];
+	VGS = 0:0.01:1.2;
+	VDS = fill(0.6, 121);
     LEN = length(VGS);
     VBS = fill(opVB, LEN);
     WS = fill(opW, LEN);
     LS = fill(opL, LEN);
 
-    nmosOPt = φₙ(VGS, VDS, VBS, WS, LS);
+    nmosOPt = φₙ(VGS, VDS, VBS, WS, LS).id;
 
-    nmos90id = reshape( nmosOPt.id, (Int(sqrt(LEN)), Int(sqrt(LEN))));	
+    #nmos90id = reshape( nmosOPt.id, (Int(sqrt(LEN)), Int(sqrt(LEN))));	
 
-    surface( unique(VGS), unique(VDS), nmos90id
-           ; c = :thermal, legend = false
-           , xaxis = "Vgs [V]", yaxis = "Vds [V]", zaxis = "Id [A]" 
-           , title = "Characteristic" )
+    # surface( unique(VGS), unique(VDS), nmos90id
+    #        ; c = :thermal, legend = false
+    #        , xaxis = "Vgs [V]", yaxis = "Vds [V]", zaxis = "Id [A]" 
+    #        , title = "Characteristic" )
+	plot(VGS, nmosOPt, yscale = :log10)
 end
+
+# ╔═╡ b7af167c-7b66-11eb-3a89-fdf505c25551
+VGS
 
 # ╔═╡ e1d7d448-72c9-11eb-3ea6-99c8336551de
 md"""
@@ -984,6 +991,7 @@ end;
 # ╟─7d0501a4-54c3-11eb-3e5c-275701e033ea
 # ╟─e702caf0-720f-11eb-2780-1770c60d8247
 # ╟─f7d15572-50f9-11eb-2923-fbb666503e9d
+# ╠═b7af167c-7b66-11eb-3a89-fdf505c25551
 # ╟─e1d7d448-72c9-11eb-3ea6-99c8336551de
 # ╟─c96a159e-75b0-11eb-14b8-05e3b18a842c
 # ╟─aa26b788-72cb-11eb-3508-05c306d752d2

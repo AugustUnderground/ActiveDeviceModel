@@ -14,7 +14,7 @@ macro bind(def, element)
 end
 
 # ╔═╡ bf21b8ec-357f-11eb-023f-6b64f6e0da73
-using DataFrames, StatsBase, JLD2, BSON, PlutoUI, DataInterpolations, PyCall, ScikitLearn, Optim, Random, Chain, Distributions, Flux, Zygote, CUDA, NNlib, CSVFiles, Lazy, MLDataUtils, Plots
+using DataFrames, StatsBase, JLD2, BSON, PlutoUI, DataInterpolations, PyCall, ScikitLearn, Optim, Random, Chain, Distributions, Flux, Zygote, CUDA, NNlib, CSVFiles, Lazy, MLDataUtils, Plots, CSV
 
 # ╔═╡ 31c636ac-55b8-11eb-19d6-8dc9af976a24
 begin
@@ -56,6 +56,7 @@ joblib = pyimport("joblib");
 
 # ╔═╡ 99ba2bec-4034-11eb-045f-49b2e8eca1de
 plotly();
+#pgfplotsx();
 #pyplot();
 
 # ╔═╡ d091d5e2-357f-11eb-385b-252f9ee49070
@@ -87,6 +88,9 @@ begin
 	L = $(slL)
 	"""
 end
+
+# ╔═╡ 546a5588-7ce3-11eb-3c00-07dc5a82ba18
+describe(simData.fug)
 
 # ╔═╡ 092d49d4-3584-11eb-226b-bde1f2e49a22
 begin
@@ -260,8 +264,8 @@ end;
 begin
     simSample = simData[ StatsBase.sample( MersenneTwister(666)
                                         , 1:(simData |> size |> first)
-                                        , pweights(simData.gds)
-                                        , 666666
+                                        , pweights(simData.id)
+                                        , 10000
                                         ; replace = false )
                       , : ];
 
@@ -285,7 +289,7 @@ begin
 
     rawSample = simData[ StatsBase.sample( MersenneTwister(666)
                                          , 1:(simData |> size |> first)
-                                         , 666666
+                                         , 10000
                                          ; replace = false )
                        , : ];
 end;
@@ -325,12 +329,16 @@ begin
 	idIdx = indexin(["id"], paramsY)[1];
 end;
 
+# ╔═╡ e14b68d6-7a9f-11eb-183d-5590f987235b
+dfCox = DataFrame( "raw" => rs1Y[idIdx,:], "qt" => us3Y[idIdx,:]
+				 , "weighted" => us1Y[idIdx,:], "bct" => us2Y[idIdx,:] )
+
 # ╔═╡ 78813f7a-5cd8-11eb-2bea-278bd4f36ec0
-plot( histogram( rs1Y[gmIdx,:], legend = false, yaxis = "raw"
+plot( histogram( rs1Y[idIdx,:], legend = false, yaxis = "raw"
                , title = "Drain Current Distribution" )
-    , histogram( us3Y[gmIdx,:], legend = false, yaxis = "qt" ) 
-    , histogram( us1Y[gmIdx,:], legend = false, yaxis = "weighted" )
-	, histogram( us2Y[gmIdx,:], legend = false, yaxis = "bct" )
+    , histogram( us3Y[idIdx,:], legend = false, yaxis = "qt" ) 
+    , histogram( us1Y[idIdx,:], legend = false, yaxis = "weighted" )
+	, histogram( us2Y[idIdx,:], legend = false, yaxis = "bct" )
     ; layout = (4,1) )
 #plot( histogram( us1Y[1,:], legend = false, title = "raw", yaxis = "vth")
 #	, histogram( us2Y[1,:], legend = false, title = "bct")
@@ -462,7 +470,7 @@ md"""
 
 # ╔═╡ c41d0f00-74f1-11eb-25bb-d58ae55f94e4
 begin	
-    νmodelFile = "../model/current/l-gmid-nmos90.bson"
+    νmodelFile = "../model/current/l-vdsat-nmos90.bson"
     νmodel     = BSON.load(νmodelFile);
     ν          = νmodel[:model];
     νparamsX   = νmodel[:paramsX];
@@ -486,6 +494,9 @@ begin
     end;
 end;
 
+# ╔═╡ d976382c-7a9d-11eb-3cd6-1de86298f3fd
+#CSV.write("./sample.csv", dfCox)
+
 # ╔═╡ 38182976-768e-11eb-3a4e-13f129525ad2
 begin
     cLengths = unique(dd.L);
@@ -506,41 +517,51 @@ end
 # ╔═╡ 2cb7c2ec-768b-11eb-3c35-3fe8a77946a0
 begin
     cStep = 12;
-    scL = cLengths[sclIdx];
-
+	scL = rand(unique(simData.L));
+	
 	cdL = dd[(dd.L .== scL), : ];
     cdL.EVds = exp.(cdL.Vds);
     cdL.RVbs = sqrt.(abs.(cdL.Vbs));
 	cdL.gmid = cdL.gm ./ cdL.id;
 
-	sort!(cdL, [:gmid]);
+	sort!(cdL, [:vdsat]);
     cLen = size(cdL, 1);
     cvgmid = cdL.gmid;
+	cvdsat = cdL.vdsat[1:cStep:end];
     cIdW = cdL.idw;
 	cA0 = cdL.a0;
 
     cdL.id = fill(scId, cLen);
     
-    cX = Matrix(cdL[1:cStep:end,νparamsX])';
+    cX = Matrix(cdL[:,νparamsX])';
     cY = νpredict(cX);
-    cJd = CubicSpline(Vector(cY.Jd), cdL.gmid[1:cStep:end]);
-    cVg = CubicSpline(Vector(cY.Vgs), cdL.gmid[1:cStep:end]);
-	cgds = CubicSpline(Vector(cY.gds), cdL.gmid[1:cStep:end]);
-	cgm = CubicSpline(Vector(cY.gm), cdL.gmid[1:cStep:end]);
-	ca0 = CubicSpline(Vector(cY.A0), cdL.gmid[1:cStep:end]);
-    cVeg = CubicSpline(Vector(cY.Veg), cdL.gmid[1:cStep:end]);
+	# cJd = CubicSpline(Vector(cY.Jd), cdL.vdsat[1:cStep:end]);
+	# cVg = CubicSpline(Vector(cY.Vgs), cdL.vdsat[1:cStep:end]);
+	# cgds = CubicSpline(Vector(cY.gds), cdL.vdsat[1:cStep:end]);
+	# cgm = CubicSpline(Vector(cY.gm), cdL.vdsat[1:cStep:end]);
+	# ca0 = CubicSpline(Vector(cY.A0), cdL.vdsat[1:cStep:end]);
+    #cVeg = CubicSpline(Vector(cY.Veg), cdL.vdsat[1:cStep:end]);
 end;
+
+# ╔═╡ 12cfd7ba-7a9c-11eb-0c50-f3e1ff6f4668
+vdsatcomp = DataFrame( "vdsat" => cdL.vdsat
+	     			 , "Jd_pred" => cY.Jd, "Jd_true" => cdL.idw
+		 			 , "A0_pred" => cY.A0, "A0_true" => cdL.a0 )
 
 # ╔═╡ f0f01ea8-768a-11eb-1601-5164f5993457
 begin
-	pjd = plot(cvgmid, cdL.gm; label = "True", xaxis = "gmid", yaxis = "gds", w = 2);
-	#pjd = plot!(cgm; label = "pred gm", w = 2);
-	#pjd = plot!( cgds; label = "pred gds", w = 2);
-	#pjd = plot!(cgm ./ cgds; label = "pred gm / gds", w = 2);
-    pjd = plot!( cgm; label = "Pred", w = 2
-               , legend = :topleft#, yscale = :log10
+	pjd = plot( cdL.vdsat, cdL.idw, label = "True"
+			  , xaxis = "vdsat", yaxis = "Jd", w = 2);
+    pjd = plot!( cdL.vdsat, cY.Jd; label = "Pred", w = 2
+               , legend = :topleft, yscale = :log10
                , title = "L = $(scL) and Id = $(scId)" );
-
+	pa0 = plot( cdL.vdsat, cdL.a0, label = "True"
+			  , xaxis = "vdsat", yaxis = "A0", w = 2);
+    pa0 = plot!( cdL.vdsat, cY.A0; label = "Pred", w = 2
+               , legend = :topleft, yscale = :log10
+               , title = "L = $(scL) and Id = $(scId)" );
+	
+	plot(pjd, pa0; layout = (2,1))
 end
 
 # ╔═╡ a5d08dae-768a-11eb-1965-f3a93fe4faa9
@@ -570,8 +591,11 @@ end;
 
 # ╔═╡ f9a4397e-5a80-11eb-3843-2db5c69de322
 begin
-	plot( ddL.vdsat, ddL.idw; label = "True Jd", xaxis = "vdsat", yaxis = "Jd", w = 2);
-	plot!(ddL.vdsat[2:end], ∂idW′∂vdsat; label = "True ∂Jd/∂vdsat", w = 2);
+	#predJD = Vector(νpredict(νX).Jd);
+	plot( ddL.vdsat[1:νStep:end], ddL.idw[1:νStep:end]
+		 ; label = "True Jd", xaxis = "vdsat", yaxis = "Jd", w = 2);
+	plot!( ddL.vdsat[2:νStep:end], ∂idW′∂vdsat[2:νStep:end]
+		 ; label = "True ∂Jd/∂vdsat", w = 2);
     plot!(νjd; label = "Pred Jd", w = 2, legend = :topleft)
 	plot!(ddL.vdsat, ∂jd′∂vdsat; label = "Pred ∂Jd/∂vdsat", w = 2);
 end
@@ -610,6 +634,7 @@ end
 # ╠═ed7ac13e-357f-11eb-170b-31a27207af5f
 # ╟─293aad98-3587-11eb-0f56-1d8144ad7e84
 # ╟─a002f77c-3580-11eb-0ad8-e946d85c84c7
+# ╠═546a5588-7ce3-11eb-3c00-07dc5a82ba18
 # ╠═092d49d4-3584-11eb-226b-bde1f2e49a22
 # ╠═a11bf6ae-6afa-11eb-0833-f5b9a6b10f70
 # ╠═24a21870-360b-11eb-1269-db94fecdb0a6
@@ -628,6 +653,7 @@ end
 # ╠═bc3a4716-5cd0-11eb-1939-91291bfdf530
 # ╠═bceea132-5cd7-11eb-14ef-e70cad73f65f
 # ╠═463d85f4-79c3-11eb-1bb1-a106a5627d66
+# ╠═e14b68d6-7a9f-11eb-183d-5590f987235b
 # ╠═78813f7a-5cd8-11eb-2bea-278bd4f36ec0
 # ╠═297b36fc-616b-11eb-37d9-2d761bb2e287
 # ╟─5ba2fb94-5985-11eb-1710-932d14cb2c51
@@ -639,6 +665,8 @@ end
 # ╠═c41d0f00-74f1-11eb-25bb-d58ae55f94e4
 # ╠═2cb7c2ec-768b-11eb-3c35-3fe8a77946a0
 # ╠═f0f01ea8-768a-11eb-1601-5164f5993457
+# ╠═12cfd7ba-7a9c-11eb-0c50-f3e1ff6f4668
+# ╠═d976382c-7a9d-11eb-3cd6-1de86298f3fd
 # ╟─38182976-768e-11eb-3a4e-13f129525ad2
 # ╟─a5d08dae-768a-11eb-1965-f3a93fe4faa9
 # ╠═faad964e-5a7b-11eb-30e5-7552e886738c
